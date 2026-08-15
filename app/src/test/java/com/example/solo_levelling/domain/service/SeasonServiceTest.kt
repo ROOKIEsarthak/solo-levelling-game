@@ -63,4 +63,22 @@ class SeasonServiceTest {
         assertNotNull(active)
         assertEquals(75, active!!.seasonXp)
     }
+
+    @Test
+    fun p_addSeasonXp_acceptsNegativeAndClampsAtZero() = runTest {
+        service.ensureActiveSeason()
+        service.addSeasonXp(40)
+        service.addSeasonXp(-15)
+        assertEquals(25, db.moduleDao().getActiveSeason()!!.seasonXp)
+        service.addSeasonXp(-100)
+        assertEquals(0, db.moduleDao().getActiveSeason()!!.seasonXp)
+    }
+
+    @Test
+    fun n_addSeasonXp_zeroIsNoOp() = runTest {
+        service.ensureActiveSeason()
+        service.addSeasonXp(10)
+        service.addSeasonXp(0)
+        assertEquals(10, db.moduleDao().getActiveSeason()!!.seasonXp)
+    }
 }

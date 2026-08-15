@@ -147,6 +147,8 @@ interface ModuleDao {
 
     suspend fun getActiveBoss(): BossEntity?
 
+    suspend fun getBosses(): List<BossEntity>
+
     suspend fun upsertBoss(boss: BossEntity): Long
 
     suspend fun updateBoss(boss: BossEntity)

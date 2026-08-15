@@ -129,6 +129,45 @@ class QuestCompletionServiceTest {
     }
 
     @Test
+    fun p_complete_afterUndo_awardsAgain() = runTest {
+        val id = seedInstance(40)
+        assertTrue(service.complete(id) is QuestCompletionService.Result.Completed)
+        assertTrue(service.undo(id))
+        val again = service.complete(id)
+        assertTrue(again is QuestCompletionService.Result.Completed)
+        assertEquals(40, (again as QuestCompletionService.Result.Completed).xp)
+        assertEquals(40, db.playerDao().getProfile(1)!!.totalXp)
+        assertEquals(QuestStatus.COMPLETED.name, db.questDao().getInstance(id)!!.status)
+        assertTrue(service.undo(id))
+        assertEquals(0, db.playerDao().getProfile(1)!!.totalXp)
+        assertEquals(QuestStatus.AVAILABLE.name, db.questDao().getInstance(id)!!.status)
+    }
+
+    @Test
+    fun e_dailyCap_freesAfterUndo() = runTest {
+        val id = seedInstance(40)
+        db.xpDao().insertLedger(
+            com.example.solo_levelling.data.db.entity.XpLedgerEntryEntity(
+                amount = 500,
+                sourceType = "OTHER",
+                sourceId = "fill",
+                createdAtEpochMs = clock.nowEpochMs(),
+            ),
+        )
+        assertEquals(QuestCompletionService.Result.DailyCapReached, service.complete(id))
+        db.xpDao().insertLedger(
+            com.example.solo_levelling.data.db.entity.XpLedgerEntryEntity(
+                amount = -500,
+                sourceType = "OTHER_UNDO",
+                sourceId = "fill_undo",
+                createdAtEpochMs = clock.nowEpochMs(),
+            ),
+        )
+        val result = service.complete(id)
+        assertTrue(result is QuestCompletionService.Result.Completed)
+    }
+
+    @Test
     fun n_undo_outsideWindowFails() = runTest {
         val id = seedInstance(40)
         service.complete(id)

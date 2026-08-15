@@ -14,9 +14,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -38,6 +42,7 @@ import com.example.solo_levelling.ui.navigation.AppRoute
 import com.example.solo_levelling.ui.onboarding.OnboardingScreen
 import com.example.solo_levelling.ui.quests.QuestsScreen
 import com.example.solo_levelling.ui.settings.SettingsScreen
+import kotlinx.coroutines.launch
 
 @Composable
 fun SoloLevellingAppRoot(container: AppContainer) {
@@ -63,8 +68,14 @@ fun SoloLevellingAppRoot(container: AppContainer) {
         AppRoute.Modules.route,
         AppRoute.Analytics.route,
     )
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val showMessage: (String) -> Unit = { message ->
+        scope.launch { snackbarHostState.showSnackbar(message) }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (showBar) {
                 NavigationBar {
@@ -88,38 +99,43 @@ fun SoloLevellingAppRoot(container: AppContainer) {
             }
         },
     ) { padding ->
-        LevelUpHost(container)
-        NavHost(
-            navController = navController,
-            startDestination = start,
-            modifier = Modifier.padding(padding),
-        ) {
-            composable(AppRoute.Onboarding.route) {
-                OnboardingScreen(container) {
-                    navController.navigate(AppRoute.Dashboard.route) {
-                        popUpTo(AppRoute.Onboarding.route) { inclusive = true }
+        Box(Modifier.fillMaxSize().padding(padding)) {
+            NavHost(
+                navController = navController,
+                startDestination = start,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                composable(AppRoute.Onboarding.route) {
+                    OnboardingScreen(container) {
+                        navController.navigate(AppRoute.Dashboard.route) {
+                            popUpTo(AppRoute.Onboarding.route) { inclusive = true }
+                        }
+                    }
+                }
+                composable(AppRoute.Dashboard.route) {
+                    DashboardScreen(
+                        container = container,
+                        onOpenAchievements = { navController.navigate(AppRoute.Achievements.route) },
+                        onOpenSettings = { navController.navigate(AppRoute.Settings.route) },
+                        onMessage = showMessage,
+                    )
+                }
+                composable(AppRoute.Quests.route) {
+                    QuestsScreen(container = container, onMessage = showMessage)
+                }
+                composable(AppRoute.Character.route) { CharacterScreen(container) }
+                composable(AppRoute.Achievements.route) { AchievementsScreen(container) }
+                composable(AppRoute.Modules.route) { ModulesScreen(container) }
+                composable(AppRoute.Analytics.route) { AnalyticsScreen(container) }
+                composable(AppRoute.Settings.route) {
+                    SettingsScreen(container) {
+                        navController.navigate(AppRoute.Dashboard.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
                     }
                 }
             }
-            composable(AppRoute.Dashboard.route) {
-                DashboardScreen(
-                    container = container,
-                    onOpenAchievements = { navController.navigate(AppRoute.Achievements.route) },
-                    onOpenSettings = { navController.navigate(AppRoute.Settings.route) },
-                )
-            }
-            composable(AppRoute.Quests.route) { QuestsScreen(container) }
-            composable(AppRoute.Character.route) { CharacterScreen(container) }
-            composable(AppRoute.Achievements.route) { AchievementsScreen(container) }
-            composable(AppRoute.Modules.route) { ModulesScreen(container) }
-            composable(AppRoute.Analytics.route) { AnalyticsScreen(container) }
-            composable(AppRoute.Settings.route) {
-                SettingsScreen(container) {
-                    navController.navigate(AppRoute.Dashboard.route) {
-                        popUpTo(0) { inclusive = true }
-                    }
-                }
-            }
+            LevelUpHost(container)
         }
     }
 }

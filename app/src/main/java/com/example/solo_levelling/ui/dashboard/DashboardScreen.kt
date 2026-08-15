@@ -35,7 +35,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.core.config.SystemDefaults
 import com.example.solo_levelling.domain.model.QuestStatus
+import com.example.solo_levelling.domain.service.QuestCompletionService
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +46,7 @@ fun DashboardScreen(
     container: AppContainer,
     onOpenAchievements: () -> Unit,
     onOpenSettings: () -> Unit,
+    onMessage: (String) -> Unit = {},
 ) {
     val vm: DashboardViewModel = viewModel(factory = DashboardViewModel.factory(container))
     val profile by vm.profile.collectAsStateWithLifecycle()
@@ -184,7 +188,26 @@ fun DashboardScreen(
                             Text("+${q.baseXp} XP · ${q.status}")
                         }
                         if (q.status != QuestStatus.COMPLETED.name) {
-                            Button(onClick = { scope.launch { container.questCompletion.complete(q.id) } }) {
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        val result = withContext(Dispatchers.IO) {
+                                            container.questCompletion.complete(q.id)
+                                        }
+                                        when (result) {
+                                            is QuestCompletionService.Result.Completed -> Unit
+                                            QuestCompletionService.Result.AlreadyCompleted ->
+                                                onMessage("Quest already completed")
+                                            QuestCompletionService.Result.NotFound ->
+                                                onMessage("Quest not found")
+                                            QuestCompletionService.Result.InvalidStatus ->
+                                                onMessage("Quest can't be completed right now")
+                                            QuestCompletionService.Result.DailyCapReached ->
+                                                onMessage("Daily XP cap reached")
+                                        }
+                                    }
+                                },
+                            ) {
                                 Text("Clear")
                             }
                         } else {

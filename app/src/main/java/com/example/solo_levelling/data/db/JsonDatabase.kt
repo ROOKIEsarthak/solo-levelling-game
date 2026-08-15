@@ -35,12 +35,14 @@ import com.example.solo_levelling.data.db.entity.WorkoutExerciseEntity
 import com.example.solo_levelling.data.db.entity.XpLedgerEntryEntity
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 import java.io.File
@@ -123,10 +125,16 @@ class JsonDatabase(private val rootDir: File) {
     fun configDao(): ConfigDao = configDaoImpl
     fun outboxDao(): OutboxDao = outboxDaoImpl
 
-    suspend fun <R> withTransaction(block: suspend () -> R): R =
-        withContext(TransactionContext()) {
+    suspend fun <R> withTransaction(block: suspend () -> R): R {
+        val context = if (isOnMainDispatcher()) {
+            Dispatchers.IO + TransactionContext()
+        } else {
+            TransactionContext()
+        }
+        return withContext(context) {
             writeMutex.withLock { block() }
         }
+    }
 
     suspend fun clearProgressTables() = withWriteLock {
         val savedProfile = userJson.profile
@@ -171,7 +179,18 @@ class JsonDatabase(private val rootDir: File) {
 
     private suspend fun <T> withWriteLock(block: suspend () -> T): T {
         if (coroutineContext[TransactionContext.Key] != null) return block()
-        return writeMutex.withLock { block() }
+        return if (isOnMainDispatcher()) {
+            withContext(Dispatchers.IO) {
+                writeMutex.withLock { block() }
+            }
+        } else {
+            writeMutex.withLock { block() }
+        }
+    }
+
+    private suspend fun isOnMainDispatcher(): Boolean {
+        val interceptor = coroutineContext[ContinuationInterceptor]
+        return interceptor === Dispatchers.Main || interceptor === Dispatchers.Main.immediate
     }
 
     private inline fun <reified T> readList(name: String): MutableList<T> {
@@ -569,7 +588,7 @@ class JsonDatabase(private val rootDir: File) {
         }
 
         override suspend fun sumXpBetween(startMs: Long, endMs: Long): Int = withWriteLock {
-            xpLedger.filter { it.createdAtEpochMs >= startMs && it.createdAtEpochMs < endMs && it.amount > 0 }
+            xpLedger.filter { it.createdAtEpochMs >= startMs && it.createdAtEpochMs < endMs }
                 .sumOf { it.amount }
         }
     }
@@ -662,6 +681,10 @@ class JsonDatabase(private val rootDir: File) {
 
         override suspend fun getActiveBoss(): BossEntity? = withWriteLock {
             bosses.firstOrNull { it.status == "ACTIVE" }
+        }
+
+        override suspend fun getBosses(): List<BossEntity> = withWriteLock {
+            bosses.toList()
         }
 
         override suspend fun upsertBoss(boss: BossEntity): Long = withWriteLock {

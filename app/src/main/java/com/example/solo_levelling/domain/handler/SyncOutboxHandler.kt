@@ -16,13 +16,15 @@ class SyncOutboxHandler(
     fun start() {
         scope.launch {
             eventBus.events.collect { event ->
-                db.outboxDao().insert(
-                    SyncOutboxEntity(
-                        eventType = event::class.simpleName ?: "Unknown",
-                        payloadJson = event.toString(),
-                        createdAtEpochMs = clock.nowEpochMs(),
-                    ),
-                )
+                scope.launch {
+                    db.outboxDao().insert(
+                        SyncOutboxEntity(
+                            eventType = event::class.simpleName ?: "Unknown",
+                            payloadJson = event.toString(),
+                            createdAtEpochMs = clock.nowEpochMs(),
+                        ),
+                    )
+                }
             }
         }
     }

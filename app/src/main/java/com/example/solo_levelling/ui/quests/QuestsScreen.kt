@@ -26,10 +26,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.domain.model.QuestStatus
+import com.example.solo_levelling.domain.service.QuestCompletionService
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
-fun QuestsScreen(container: AppContainer) {
+fun QuestsScreen(
+    container: AppContainer,
+    onMessage: (String) -> Unit = {},
+) {
     val vm: QuestsViewModel = viewModel(factory = QuestsViewModel.factory(container))
     val quests by vm.quests.collectAsStateWithLifecycle()
     val selectedTab by vm.selectedTab.collectAsStateWithLifecycle()
@@ -61,8 +67,34 @@ fun QuestsScreen(container: AppContainer) {
                 items(quests, key = { it.id }) { q ->
                     QuestCard(
                         quest = q,
-                        onComplete = { scope.launch { container.questCompletion.complete(q.id) } },
-                        onUndo = { scope.launch { container.questCompletion.undo(q.id) } },
+                        onComplete = {
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    container.questCompletion.complete(q.id)
+                                }
+                                when (result) {
+                                    is QuestCompletionService.Result.Completed -> Unit
+                                    QuestCompletionService.Result.AlreadyCompleted ->
+                                        onMessage("Quest already completed")
+                                    QuestCompletionService.Result.NotFound ->
+                                        onMessage("Quest not found")
+                                    QuestCompletionService.Result.InvalidStatus ->
+                                        onMessage("Quest can't be completed right now")
+                                    QuestCompletionService.Result.DailyCapReached ->
+                                        onMessage("Daily XP cap reached")
+                                }
+                            }
+                        },
+                        onUndo = {
+                            scope.launch {
+                                val ok = withContext(Dispatchers.IO) {
+                                    container.questCompletion.undo(q.id)
+                                }
+                                if (!ok) {
+                                    onMessage("Couldn't undo — window may have expired")
+                                }
+                            }
+                        },
                     )
                 }
             }

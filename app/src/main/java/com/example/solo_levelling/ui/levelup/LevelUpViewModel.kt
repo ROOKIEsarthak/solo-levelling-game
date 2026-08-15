@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.core.event.DomainEvent
+import com.example.solo_levelling.core.event.EventBus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,19 +17,22 @@ sealed class LevelUpEvent {
 }
 
 class LevelUpViewModel(
-    container: AppContainer,
+    eventBus: EventBus,
 ) : ViewModel() {
     private val _pendingEvent = MutableStateFlow<LevelUpEvent?>(null)
     val pendingEvent: StateFlow<LevelUpEvent?> = _pendingEvent.asStateFlow()
 
     init {
         viewModelScope.launch {
-            container.eventBus.events.collect { event ->
+            eventBus.events.collect { event ->
                 when (event) {
                     is DomainEvent.LevelUp ->
                         _pendingEvent.value = LevelUpEvent.LevelUp(event.oldLevel, event.newLevel)
                     is DomainEvent.RankUp ->
                         _pendingEvent.value = LevelUpEvent.RankUp(event.oldRank, event.newRank)
+                    is DomainEvent.XpReversed,
+                    is DomainEvent.QuestUndone,
+                    -> _pendingEvent.value = null
                     else -> Unit
                 }
             }
@@ -43,7 +47,7 @@ class LevelUpViewModel(
         fun factory(container: AppContainer) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                LevelUpViewModel(container) as T
+                LevelUpViewModel(container.eventBus) as T
         }
     }
 }

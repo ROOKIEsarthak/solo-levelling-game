@@ -28,8 +28,10 @@ class StreakHandler(
     fun start() {
         scope.launch {
             eventBus.events.collect { event ->
-                if (event is DomainEvent.QuestCompleted) {
-                    onQuestCompleted()
+                when (event) {
+                    is DomainEvent.QuestCompleted -> onQuestCompleted()
+                    is DomainEvent.QuestUndone -> onQuestUndone()
+                    else -> Unit
                 }
             }
         }
@@ -66,6 +68,29 @@ class StreakHandler(
             ),
         )
         eventBus.publish(DomainEvent.StreakUpdated(newCurrent, newBest))
+    }
+
+    private suspend fun onQuestUndone() {
+        val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID) ?: return
+        val zone = runCatching { ZoneId.of(profile.timezone) }.getOrDefault(ZoneId.systemDefault())
+        val today = clock.today(zone)
+        val todayStr = today.format(dateFmt)
+        val completedToday = db.questDao().getInstancesForDate(todayStr)
+            .any { it.status == QuestStatus.COMPLETED.name }
+        if (completedToday) return
+
+        val streak = db.playerDao().getStreak(SystemDefaults.PLAYER_ID) ?: return
+        if (streak.lastCompletedDate != todayStr) return
+
+        val newCurrent = (streak.current - 1).coerceAtLeast(0)
+        val newLast = if (newCurrent == 0) null else today.minusDays(1).format(dateFmt)
+        db.playerDao().upsertStreak(
+            streak.copy(
+                current = newCurrent,
+                lastCompletedDate = newLast,
+            ),
+        )
+        eventBus.publish(DomainEvent.StreakUpdated(newCurrent, streak.best))
     }
 
     private suspend fun maybeSpawnRecovery(todayStr: String, recoveryUsed: Int) {

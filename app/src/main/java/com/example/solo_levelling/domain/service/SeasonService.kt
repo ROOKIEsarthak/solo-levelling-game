@@ -33,9 +33,11 @@ class SeasonService(
     }
 
     suspend fun addSeasonXp(amount: Int) {
-        if (amount <= 0) return
+        if (amount == 0) return
         val season = ensureActiveSeason()
-        db.moduleDao().upsertSeason(season.copy(seasonXp = season.seasonXp + amount))
+        db.moduleDao().upsertSeason(
+            season.copy(seasonXp = (season.seasonXp + amount).coerceAtLeast(0)),
+        )
     }
 
     suspend fun endSeasonIfPast() {

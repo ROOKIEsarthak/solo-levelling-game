@@ -28,8 +28,10 @@ class QuestGenerationService(
         val s = scope ?: return
         s.launch {
             eventBus.events.collect { event ->
-                if (event is DomainEvent.QuestCompleted) {
-                    onQuestCompleted(event)
+                when (event) {
+                    is DomainEvent.QuestCompleted -> onQuestCompleted(event)
+                    is DomainEvent.QuestUndone -> onQuestUndone(event)
+                    else -> Unit
                 }
             }
         }
@@ -147,6 +149,17 @@ class QuestGenerationService(
         for (dep in dependents) {
             if (dep.status == QuestStatus.LOCKED.name) {
                 db.questDao().updateInstance(dep.copy(status = QuestStatus.AVAILABLE.name))
+            }
+        }
+    }
+
+    private suspend fun onQuestUndone(event: DomainEvent.QuestUndone) {
+        val instance = db.questDao().getInstance(event.instanceId) ?: return
+        val template = db.questDao().getTemplateById(instance.templateId) ?: return
+        val dependents = db.questDao().getInstancesDependingOn(instance.scheduledDate, template.key)
+        for (dep in dependents) {
+            if (dep.status == QuestStatus.AVAILABLE.name) {
+                db.questDao().updateInstance(dep.copy(status = QuestStatus.LOCKED.name))
             }
         }
     }

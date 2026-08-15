@@ -14,8 +14,10 @@ class SeasonHandler(
     fun start() {
         scope.launch {
             eventBus.events.collect { event ->
-                if (event is DomainEvent.XpAwarded) {
-                    seasonService.addSeasonXp(event.amount)
+                when (event) {
+                    is DomainEvent.XpAwarded -> seasonService.addSeasonXp(event.amount)
+                    is DomainEvent.XpReversed -> seasonService.addSeasonXp(event.amount)
+                    else -> Unit
                 }
             }
         }
