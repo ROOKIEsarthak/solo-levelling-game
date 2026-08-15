@@ -1,7 +1,0 @@
-com.example.solo_levelling.app-pngs-0 /Users/sarthakkashyap/Documents/personal/solo-levelling/app/build/generated/res/pngs/debug
-com.example.solo_levelling.app-updated_navigation_xml-1 /Users/sarthakkashyap/Documents/personal/solo-levelling/app/build/generated/updated_navigation_xml/debug
-com.example.solo_levelling.app-packageDebugResources-2 /Users/sarthakkashyap/Documents/personal/solo-levelling/app/build/intermediates/incremental/debug/packageDebugResources/merged.dir
-com.example.solo_levelling.app-packageDebugResources-3 /Users/sarthakkashyap/Documents/personal/solo-levelling/app/build/intermediates/incremental/debug/packageDebugResources/stripped.dir
-com.example.solo_levelling.app-debug-4 /Users/sarthakkashyap/Documents/personal/solo-levelling/app/build/intermediates/merged_res/debug/mergeDebugResources
-com.example.solo_levelling.app-debug-5 /Users/sarthakkashyap/Documents/personal/solo-levelling/app/src/debug/res
-com.example.solo_levelling.app-main-6 /Users/sarthakkashyap/Documents/personal/solo-levelling/app/src/main/res
