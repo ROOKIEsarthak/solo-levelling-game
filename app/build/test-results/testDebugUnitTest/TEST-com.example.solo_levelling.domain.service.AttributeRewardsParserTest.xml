@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.example.solo_levelling.domain.service.AttributeRewardsParserTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-08-15T10:26:56.612Z" hostname="LMOLNEOMACL3RT.local" time="0.005">
+  <properties/>
+  <testcase name="p_toJson_roundTrips" classname="com.example.solo_levelling.domain.service.AttributeRewardsParserTest" time="0.004"/>
+  <testcase name="p_parse_readsAttributeMap" classname="com.example.solo_levelling.domain.service.AttributeRewardsParserTest" time="0.001"/>
+  <testcase name="n_parse_blankReturnsEmpty" classname="com.example.solo_levelling.domain.service.AttributeRewardsParserTest" time="0.0"/>
+  <testcase name="e_parse_ignoresZeroAmounts" classname="com.example.solo_levelling.domain.service.AttributeRewardsParserTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

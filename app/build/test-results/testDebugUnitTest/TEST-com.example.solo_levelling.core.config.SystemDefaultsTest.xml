@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.example.solo_levelling.core.config.SystemDefaultsTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-08-15T10:26:56.559Z" hostname="LMOLNEOMACL3RT.local" time="0.008">
+  <properties/>
+  <testcase name="p_levelFromTotalXp_advancesAfterEnoughXp" classname="com.example.solo_levelling.core.config.SystemDefaultsTest" time="0.005"/>
+  <testcase name="e_levelFromTotalXp_staysWhenOneXpShort" classname="com.example.solo_levelling.core.config.SystemDefaultsTest" time="0.0"/>
+  <testcase name="p_totalXpForLevel_isInverseOfProgression" classname="com.example.solo_levelling.core.config.SystemDefaultsTest" time="0.0"/>
+  <testcase name="p_rankForLevel_mapsThresholds" classname="com.example.solo_levelling.core.config.SystemDefaultsTest" time="0.0"/>
+  <testcase name="p_levelFromTotalXp_returns1AtZeroXp" classname="com.example.solo_levelling.core.config.SystemDefaultsTest" time="0.0"/>
+  <testcase name="p_xpForNextLevel_usesNonlinearCurve" classname="com.example.solo_levelling.core.config.SystemDefaultsTest" time="0.0"/>
+  <testcase name="e_rankForLevel_belowFirstThresholdStaysE" classname="com.example.solo_levelling.core.config.SystemDefaultsTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

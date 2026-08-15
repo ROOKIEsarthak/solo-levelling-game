@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.example.solo_levelling.app-mergeDebugResources-1:/values-v23/values-v23.xml",
+            "map": [
+                {
+                    "source": "/private/var/folders/s8/m6_sv7w97nj1y5z6_kb48qzr0000gp/T/cursor-sandbox-cache/ccbca5183424e3a1a82c220d171a3ed7/gradle/caches/9.3.1/transforms/e12591c93ee3161438530d2f3847e3d0/transformed/work-runtime-2.10.2/res/values-v23/values-v23.xml",
+                    "from": {
+                        "startLines": "2,3",
+                        "startColumns": "4,4",
+                        "startOffsets": "55,121",
+                        "endColumns": "65,62",
+                        "endOffsets": "116,179"
+                    }
+                }
+            ]
+        }
+    ]
+}
