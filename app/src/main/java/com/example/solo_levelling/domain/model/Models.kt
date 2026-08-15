@@ -13,7 +13,7 @@ enum class QuestType {
 }
 
 enum class VerificationType {
-    MANUAL, TIMER, COUNT, METRIC_THRESHOLD
+    MANUAL, TIMER, COUNT, METRIC_THRESHOLD, AUTOMATIC
 }
 
 data class AttributeDelta(

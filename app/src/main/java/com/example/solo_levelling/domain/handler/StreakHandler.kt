@@ -4,9 +4,10 @@ import com.example.solo_levelling.core.config.SystemDefaults
 import com.example.solo_levelling.core.event.DomainEvent
 import com.example.solo_levelling.core.event.EventBus
 import com.example.solo_levelling.core.time.AppClock
-import com.example.solo_levelling.data.db.AppDatabase
+import com.example.solo_levelling.data.db.JsonDatabase
 import com.example.solo_levelling.data.db.entity.QuestInstanceEntity
 import com.example.solo_levelling.data.db.entity.StreakStateEntity
+import com.example.solo_levelling.domain.logic.StreakLogic
 import com.example.solo_levelling.domain.model.QuestStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -17,7 +18,7 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 
 class StreakHandler(
-    private val db: AppDatabase,
+    private val db: JsonDatabase,
     private val eventBus: EventBus,
     private val clock: AppClock,
     private val scope: CoroutineScope,
@@ -48,18 +49,12 @@ class StreakHandler(
         }
 
         val last = streak.lastCompletedDate?.let { LocalDate.parse(it, dateFmt) }
-        val broken = last != null && last != today && last != today.minusDays(1)
-        if (broken) {
+        if (StreakLogic.isStreakBroken(last, today)) {
             maybeSpawnRecovery(todayStr, recoveryUsed)
             recoveryUsed = (db.playerDao().getStreak(SystemDefaults.PLAYER_ID)?.recoveryUsedThisWeek) ?: recoveryUsed
         }
 
-        val newCurrent = when {
-            last == null -> 1
-            last == today -> streak.current
-            last == today.minusDays(1) -> streak.current + 1
-            else -> 1
-        }
+        val newCurrent = StreakLogic.computeNewStreak(streak.current, last, today)
         val newBest = maxOf(streak.best, newCurrent)
         db.playerDao().upsertStreak(
             StreakStateEntity(
@@ -76,7 +71,7 @@ class StreakHandler(
     private suspend fun maybeSpawnRecovery(todayStr: String, recoveryUsed: Int) {
         if (recoveryUsed >= SystemDefaults.WEEKLY_RECOVERY_LIMIT) return
         val template = db.questDao().getTemplateByKey("recovery")
-        db.questDao().insertInstance(
+        val instanceId = db.questDao().insertInstance(
             QuestInstanceEntity(
                 templateId = template?.id ?: -1L,
                 scheduledDate = todayStr,
@@ -85,8 +80,14 @@ class StreakHandler(
                 type = "RECOVERY",
                 baseXp = template?.baseXp ?: 15,
                 attributeRewardsJson = template?.attributeRewardsJson ?: """{"DISC":15}""",
+                verificationType = template?.verificationType ?: "MANUAL",
+                verificationTarget = template?.verificationTarget ?: 0f,
+                verificationUnit = template?.verificationUnit ?: "",
             ),
         )
+        if (instanceId > 0) {
+            eventBus.publish(DomainEvent.RecoveryQuestAvailable(instanceId, todayStr))
+        }
         val streak = db.playerDao().getStreak(SystemDefaults.PLAYER_ID) ?: StreakStateEntity()
         db.playerDao().upsertStreak(streak.copy(recoveryUsedThisWeek = recoveryUsed + 1))
     }

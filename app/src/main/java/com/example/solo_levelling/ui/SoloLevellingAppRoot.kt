@@ -32,6 +32,7 @@ import com.example.solo_levelling.ui.achievements.AchievementsScreen
 import com.example.solo_levelling.ui.analytics.AnalyticsScreen
 import com.example.solo_levelling.ui.character.CharacterScreen
 import com.example.solo_levelling.ui.dashboard.DashboardScreen
+import com.example.solo_levelling.ui.levelup.LevelUpHost
 import com.example.solo_levelling.ui.modules.ModulesScreen
 import com.example.solo_levelling.ui.navigation.AppRoute
 import com.example.solo_levelling.ui.onboarding.OnboardingScreen
@@ -87,6 +88,7 @@ fun SoloLevellingAppRoot(container: AppContainer) {
             }
         },
     ) { padding ->
+        LevelUpHost(container)
         NavHost(
             navController = navController,
             startDestination = start,
@@ -111,7 +113,13 @@ fun SoloLevellingAppRoot(container: AppContainer) {
             composable(AppRoute.Achievements.route) { AchievementsScreen(container) }
             composable(AppRoute.Modules.route) { ModulesScreen(container) }
             composable(AppRoute.Analytics.route) { AnalyticsScreen(container) }
-            composable(AppRoute.Settings.route) { SettingsScreen(container) }
+            composable(AppRoute.Settings.route) {
+                SettingsScreen(container) {
+                    navController.navigate(AppRoute.Dashboard.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            }
         }
     }
 }

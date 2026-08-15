@@ -2,14 +2,28 @@ package com.example.solo_levelling.domain.service
 
 import com.example.solo_levelling.core.config.SystemDefaults
 import com.example.solo_levelling.core.time.AppClock
-import com.example.solo_levelling.data.db.AppDatabase
+import com.example.solo_levelling.data.db.JsonDatabase
 import com.example.solo_levelling.domain.model.AttributeCode
 import java.time.DayOfWeek
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
+import kotlin.math.min
 import org.json.JSONArray
 import org.json.JSONObject
+
+data class AttributeSnapshot(
+    val topCode: String?,
+    val topValue: Int,
+    val bottomCode: String?,
+    val bottomValue: Int,
+)
+
+data class BossProgressSnapshot(
+    val title: String,
+    val current: Float,
+    val target: Float,
+)
 
 data class WeeklyReview(
     val weekStart: String,
@@ -18,16 +32,23 @@ data class WeeklyReview(
     val questsTotal: Int,
     val completionRate: Float,
     val xpEarned: Int,
+    val dsaSolvedWeek: Int,
+    val workoutCountWeek: Int,
+    val workoutDaysWeek: Int,
+    val bossProgress: BossProgressSnapshot?,
+    val attributeSnapshot: AttributeSnapshot,
+    val personalScore: Int,
     val recommendations: List<String>,
 )
 
 data class AdaptiveSuggestion(
+    val key: String,
     val title: String,
     val detail: String,
 )
 
 class AnalyticsService(
-    private val db: AppDatabase,
+    private val db: JsonDatabase,
     private val clock: AppClock,
 ) {
     private val dateFmt = DateTimeFormatter.ISO_LOCAL_DATE
@@ -46,15 +67,45 @@ class AnalyticsService(
         val startMs = weekStart.atStartOfDay(zone).toInstant().toEpochMilli()
         val endMs = weekEnd.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
         val xp = db.xpDao().sumXpBetween(startMs, endMs)
-        val rate = if (total == 0) 0f else completed.toFloat() / total.toFloat()
+        val rate = completionRate(completed, total)
+        val dsaSolved = db.moduleDao().countDsaSolvedInRange(startMs, endMs)
+        val workoutCount = db.moduleDao().countWorkoutsInRange(startStr, endStr)
+        val workoutDays = db.moduleDao().countWorkoutDaysInRange(startStr, endStr)
+        val streak = db.playerDao().getStreak(SystemDefaults.PLAYER_ID)?.current ?: 0
+        val personalScore = personalScore(rate, streak, workoutDays, dsaSolved)
+        val attrs = db.playerDao().getAttributes()
+        val top = attrs.maxByOrNull { it.currentValue }
+        val bottom = attrs.minByOrNull { it.currentValue }
+        val attributeSnapshot = AttributeSnapshot(
+            topCode = top?.code,
+            topValue = top?.currentValue ?: 0,
+            bottomCode = bottom?.code,
+            bottomValue = bottom?.currentValue ?: 0,
+        )
+        val boss = db.moduleDao().getActiveBoss()
+        val bossProgress = boss?.let {
+            BossProgressSnapshot(it.title, it.currentValue, it.targetValue)
+        }
         val recommendations = buildList {
             if (rate < 0.5f) add("Lower daily quest load slightly and protect one deep-work block.")
             if (rate >= 0.8f) add("Strong execution — consider one harder milestone this week.")
-            val attrs = db.playerDao().getAttributes()
-            val neglected = attrs.minByOrNull { it.currentValue }
-            if (neglected != null) add("Neglected attribute: ${neglected.code} — schedule one related quest.")
+            if (bottom != null) add("Neglected attribute: ${bottom.code} — schedule one related quest.")
         }
-        return WeeklyReview(startStr, endStr, completed, total, rate, xp, recommendations)
+        return WeeklyReview(
+            weekStart = startStr,
+            weekEnd = endStr,
+            questsCompleted = completed,
+            questsTotal = total,
+            completionRate = rate,
+            xpEarned = xp,
+            dsaSolvedWeek = dsaSolved,
+            workoutCountWeek = workoutCount,
+            workoutDaysWeek = workoutDays,
+            bossProgress = bossProgress,
+            attributeSnapshot = attributeSnapshot,
+            personalScore = personalScore,
+            recommendations = recommendations,
+        )
     }
 
     suspend fun exportJson(): String {
@@ -95,12 +146,55 @@ class AnalyticsService(
         root.put("achievements", achArr)
         return root.toString(2)
     }
+
+    fun personalScore(
+        questCompletionPct: Float,
+        streak: Int,
+        workoutDays: Int,
+        dsaSolvedWeek: Int,
+    ): Int = Companion.personalScore(questCompletionPct, streak, workoutDays, dsaSolvedWeek)
+
+    companion object {
+        fun completionRate(completed: Int, total: Int): Float =
+            if (total == 0) 0f else completed.toFloat() / total.toFloat()
+
+        fun personalScore(
+            questCompletionPct: Float,
+            streak: Int,
+            workoutDays: Int,
+            dsaSolvedWeek: Int,
+        ): Int {
+            return (
+                questCompletionPct * 40f +
+                    min(streak, 7) / 7f * 20f +
+                    workoutDays / 7f * 20f +
+                    min(dsaSolvedWeek, 10) / 10f * 20f
+                ).toInt()
+        }
+    }
 }
 
 class AdaptiveService(
-    private val db: AppDatabase,
+    private val db: JsonDatabase,
+    private val clock: AppClock,
 ) {
     suspend fun suggestions(): List<AdaptiveSuggestion> {
+        val dismissed = db.moduleDao().getDismissedSuggestionKeys().toSet()
+        val raw = buildRawSuggestions()
+        return filterDismissed(raw, dismissed)
+    }
+
+    suspend fun dismissSuggestion(key: String) {
+        if (db.moduleDao().findDismissedSuggestion(key) != null) return
+        db.moduleDao().insertDismissedSuggestion(
+            com.example.solo_levelling.data.db.entity.DismissedSuggestionEntity(
+                suggestionKey = key,
+                dismissedAtEpochMs = clock.nowEpochMs(),
+            ),
+        )
+    }
+
+    private suspend fun buildRawSuggestions(): List<AdaptiveSuggestion> {
         val attrs = db.playerDao().getAttributes()
         if (attrs.isEmpty()) return emptyList()
         val avg = attrs.map { it.currentValue }.average()
@@ -118,6 +212,7 @@ class AdaptiveService(
                     else -> "Take one small action for ${attr.code}"
                 }
                 out += AdaptiveSuggestion(
+                    key = "boost_${attr.code}",
                     title = "Boost ${attr.code}",
                     detail = hint,
                 )
@@ -126,6 +221,7 @@ class AdaptiveService(
         val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
         if (profile != null && profile.level >= 5) {
             out += AdaptiveSuggestion(
+                key = "harder_quests",
                 title = "Ready for harder quests",
                 detail = "Your level supports raising one daily quest XP tier.",
             )
@@ -142,5 +238,10 @@ class AdaptiveService(
                 else -> baseXp
             }
         }
+
+        fun filterDismissed(
+            suggestions: List<AdaptiveSuggestion>,
+            dismissedKeys: Set<String>,
+        ): List<AdaptiveSuggestion> = suggestions.filter { it.key !in dismissedKeys }
     }
 }

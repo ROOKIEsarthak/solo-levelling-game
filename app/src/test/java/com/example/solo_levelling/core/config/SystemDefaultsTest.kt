@@ -1,6 +1,7 @@
 package com.example.solo_levelling.core.config
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SystemDefaultsTest {
@@ -8,7 +9,7 @@ class SystemDefaultsTest {
     fun p_xpForNextLevel_usesNonlinearCurve() {
         assertEquals(100, SystemDefaults.xpForNextLevel(1))
         val level10 = SystemDefaults.xpForNextLevel(10)
-        assertEquals(true, level10 > SystemDefaults.xpForNextLevel(5))
+        assertTrue(level10 > SystemDefaults.xpForNextLevel(5))
     }
 
     @Test
@@ -43,9 +44,32 @@ class SystemDefaultsTest {
     }
 
     @Test
+    fun e_rankForLevel_boundaryJustBelowNextRank() {
+        assertEquals("E", SystemDefaults.rankForLevel(5))
+        assertEquals("D", SystemDefaults.rankForLevel(6))
+        assertEquals("D", SystemDefaults.rankForLevel(10))
+        assertEquals("C", SystemDefaults.rankForLevel(11))
+    }
+
+    @Test
     fun p_totalXpForLevel_isInverseOfProgression() {
         assertEquals(0, SystemDefaults.totalXpForLevel(1))
         val total = SystemDefaults.totalXpForLevel(3)
         assertEquals(SystemDefaults.xpForNextLevel(1) + SystemDefaults.xpForNextLevel(2), total)
+    }
+
+    @Test
+    fun e_streakGraceDays_defaultsToZero() {
+        assertEquals(0, SystemDefaults.STREAK_GRACE_DAYS)
+    }
+
+    @Test
+    fun p_weeklyRecoveryLimit_isPositive() {
+        assertTrue(SystemDefaults.WEEKLY_RECOVERY_LIMIT > 0)
+    }
+
+    @Test
+    fun p_dailyXpCap_isPositive() {
+        assertEquals(500, SystemDefaults.DAILY_XP_CAP)
     }
 }

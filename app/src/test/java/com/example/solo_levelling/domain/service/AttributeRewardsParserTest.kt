@@ -22,10 +22,23 @@ class AttributeRewardsParserTest {
     }
 
     @Test
+    fun n_parse_invalidJsonReturnsEmpty() {
+        assertTrue(AttributeRewardsParser.parse("not-json").isEmpty())
+        assertTrue(AttributeRewardsParser.parse("{INT:30}").isEmpty())
+    }
+
+    @Test
     fun e_parse_ignoresZeroAmounts() {
         val deltas = AttributeRewardsParser.parse("""{"INT":0,"STR":5}""")
         assertEquals(1, deltas.size)
         assertEquals(AttributeCode.STR, deltas[0].code)
+    }
+
+    @Test
+    fun e_parse_ignoresUnknownAttributeCodes() {
+        val deltas = AttributeRewardsParser.parse("""{"INT":10,"UNKNOWN":99}""")
+        assertEquals(1, deltas.size)
+        assertEquals(AttributeCode.INT, deltas[0].code)
     }
 
     @Test
@@ -34,5 +47,14 @@ class AttributeRewardsParserTest {
         val parsed = AttributeRewardsParser.parse(json)
         assertEquals(12, parsed.single().amount)
         assertEquals(AttributeCode.FOC, parsed.single().code)
+    }
+
+    @Test
+    fun p_toJsonFromMap_serializesMap() {
+        val json = AttributeRewardsParser.toJsonFromMap(mapOf(AttributeCode.INT to 20, AttributeCode.END to 5))
+        val parsed = AttributeRewardsParser.parse(json)
+        assertEquals(2, parsed.size)
+        assertEquals(20, parsed.first { it.code == AttributeCode.INT }.amount)
+        assertEquals(5, parsed.first { it.code == AttributeCode.END }.amount)
     }
 }

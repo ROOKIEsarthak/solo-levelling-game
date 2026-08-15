@@ -44,4 +44,12 @@ sealed class DomainEvent {
     data class BossProgressUpdated(val bossId: Long, val progress: Float) : DomainEvent()
 
     data class SkillLevelUp(val skillId: Long, val newLevel: Int) : DomainEvent()
+
+    data class QuestMissed(val instanceId: Long, val scheduledDate: String) : DomainEvent()
+
+    data class RecoveryQuestAvailable(val instanceId: Long, val scheduledDate: String) : DomainEvent()
+
+    data class BossCompleted(val bossId: Long, val xpReward: Int) : DomainEvent()
+
+    data class DailyQuestsReady(val date: String, val count: Int) : DomainEvent()
 }

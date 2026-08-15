@@ -7,8 +7,10 @@ import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.core.config.SystemDefaults
 import com.example.solo_levelling.data.db.entity.AttributeStatEntity
 import com.example.solo_levelling.data.db.entity.PlayerProfileEntity
+import com.example.solo_levelling.data.db.entity.XpLedgerEntryEntity
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 class CharacterViewModel(
@@ -20,6 +22,11 @@ class CharacterViewModel(
 
     val attributes: StateFlow<List<AttributeStatEntity>> =
         container.db.playerDao().observeAttributes()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val ledgerHistory: StateFlow<List<XpLedgerEntryEntity>> =
+        container.db.xpDao().observeLedger()
+            .map { entries -> entries.take(50) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     companion object {

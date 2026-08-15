@@ -27,4 +27,26 @@ class EventBusTest {
         val bus = EventBus()
         assertTrue(bus.tryPublish(DomainEvent.RankUp("E", "D")))
     }
+
+    @Test
+    fun p_publish_deliversMultipleEventsInOrder() = runTest {
+        val bus = EventBus()
+        val received = mutableListOf<DomainEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            bus.events.collect { received += it }
+        }
+        bus.publish(DomainEvent.XpAwarded(ledgerId = 1, amount = 10, sourceType = "QUEST", sourceId = "q1", totalXpAfter = 10))
+        bus.publish(
+            DomainEvent.QuestCompleted(
+                instanceId = 1,
+                templateId = 1,
+                xp = 40,
+                attributeRewardsJson = """{"INT":30}""",
+                completedAtEpochMs = 1L,
+            ),
+        )
+        assertEquals(2, received.size)
+        assertTrue(received[0] is DomainEvent.XpAwarded)
+        assertTrue(received[1] is DomainEvent.QuestCompleted)
+    }
 }

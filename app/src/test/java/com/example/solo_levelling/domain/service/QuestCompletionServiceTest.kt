@@ -1,12 +1,11 @@
 package com.example.solo_levelling.domain.service
 
 import android.content.Context
-import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.solo_levelling.core.event.DomainEvent
 import com.example.solo_levelling.core.event.EventBus
 import com.example.solo_levelling.core.time.FakeAppClock
-import com.example.solo_levelling.data.db.AppDatabase
+import com.example.solo_levelling.data.db.JsonDatabase
 import com.example.solo_levelling.data.db.entity.AttributeStatEntity
 import com.example.solo_levelling.data.db.entity.PlayerProfileEntity
 import com.example.solo_levelling.data.db.entity.QuestInstanceEntity
@@ -24,26 +23,27 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
 import java.time.LocalDate
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class QuestCompletionServiceTest {
-    private lateinit var db: AppDatabase
+    private lateinit var db: JsonDatabase
     private lateinit var eventBus: EventBus
     private lateinit var clock: FakeAppClock
+    private lateinit var progression: ProgressionService
     private lateinit var service: QuestCompletionService
 
     @Before
     fun setup() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
-            .allowMainThreadQueries()
-            .build()
+        db = JsonDatabase(File(context.cacheDir, "test-db-${System.nanoTime()}").also { it.mkdirs() })
         eventBus = EventBus()
         clock = FakeAppClock(fixedDate = LocalDate.of(2026, 8, 15))
-        service = QuestCompletionService(db, eventBus, clock)
+        progression = ProgressionService(db, eventBus, clock)
+        service = QuestCompletionService(db, eventBus, clock, progression)
     }
 
     @After

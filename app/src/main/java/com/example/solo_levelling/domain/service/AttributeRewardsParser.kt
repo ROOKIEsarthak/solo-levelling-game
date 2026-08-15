@@ -18,4 +18,7 @@ object AttributeRewardsParser {
 
     fun toJson(deltas: List<AttributeDelta>): String =
         deltas.joinToString(prefix = "{", postfix = "}") { "\"${it.code.name}\":${it.amount}" }
+
+    fun toJsonFromMap(attrs: Map<AttributeCode, Int>): String =
+        attrs.entries.joinToString(prefix = "{", postfix = "}") { "\"${it.key.name}\":${it.value}" }
 }
