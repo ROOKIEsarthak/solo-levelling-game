@@ -8,17 +8,28 @@ import com.example.solo_levelling.data.db.JsonDatabase
 import com.example.solo_levelling.data.db.entity.BossEntity
 import com.example.solo_levelling.data.db.entity.BossQuestEntity
 import com.example.solo_levelling.data.db.entity.CareerNodeEntity
+import com.example.solo_levelling.data.db.entity.DietLogEntity
 import com.example.solo_levelling.data.db.entity.DsaProblemEntity
 import com.example.solo_levelling.data.db.entity.FocusSessionEntity
+import com.example.solo_levelling.data.db.entity.FoodItemEntity
 import com.example.solo_levelling.data.db.entity.JournalEntryEntity
+import com.example.solo_levelling.data.db.entity.LoggedExerciseEntity
+import com.example.solo_levelling.data.db.entity.LoggedSetEntity
+import com.example.solo_levelling.data.db.entity.MealEntity
 import com.example.solo_levelling.data.db.entity.NutritionLogEntity
+import com.example.solo_levelling.data.db.entity.NutritionTotalsEntity
+import com.example.solo_levelling.data.db.entity.PlannedExerciseEntity
 import com.example.solo_levelling.data.db.entity.RoutineLogEntity
 import com.example.solo_levelling.data.db.entity.SkillEntity
-import com.example.solo_levelling.data.db.entity.WorkoutEntity
-import com.example.solo_levelling.data.db.entity.WorkoutExerciseEntity
+import com.example.solo_levelling.data.db.entity.WorkoutDayPlanEntity
+import com.example.solo_levelling.data.db.entity.WorkoutLogEntity
+import com.example.solo_levelling.data.db.entity.WorkoutRoutineEntity
 import com.example.solo_levelling.domain.model.AttributeCode
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.util.Locale
 
 class ModuleService(
     private val db: JsonDatabase,
@@ -99,12 +110,22 @@ class ModuleService(
 
     suspend fun logWorkout(type: String, durationMinutes: Int, notes: String = ""): Long {
         val date = todayStr()
-        val id = db.moduleDao().insertWorkout(
-            WorkoutEntity(date = date, type = type, durationMinutes = durationMinutes, notes = notes),
+        val existing = db.moduleDao().getWorkoutLog(date)
+        val log = (existing ?: WorkoutLogEntity(
+            date = date,
+            dayOfWeek = dayOfWeekKey(date),
+            workoutName = type.ifBlank { "Workout" },
+            durationMinutes = durationMinutes,
+            notes = notes,
+        )).copy(
+            workoutName = type.ifBlank { existing?.workoutName ?: "Workout" },
+            durationMinutes = durationMinutes,
+            notes = notes.ifBlank { existing?.notes.orEmpty() },
         )
+        val id = db.moduleDao().upsertWorkoutLog(log)
         progression.award(
             "WORKOUT",
-            "workout_$id",
+            "workout_$date",
             40,
             mapOf(AttributeCode.STR to 30, AttributeCode.VIT to 10),
             applyDailyCap = true,
@@ -113,28 +134,200 @@ class ModuleService(
         return id
     }
 
-    suspend fun addWorkoutExercise(
-        workoutId: Long,
-        name: String,
-        sets: Int,
-        reps: Int,
-        weightKg: Float,
-        rir: Int = 0,
+    suspend fun getWorkoutRoutine(): WorkoutRoutineEntity = db.moduleDao().getWorkoutRoutine()
+
+    suspend fun saveRoutineDay(dayKey: String, plan: WorkoutDayPlanEntity) {
+        val routine = db.moduleDao().getWorkoutRoutine()
+        db.moduleDao().upsertWorkoutRoutine(routine.withDay(dayKey, plan))
+    }
+
+    suspend fun setRestDay(dayKey: String) {
+        saveRoutineDay(dayKey, WorkoutDayPlanEntity(enabled = false, name = "Rest", exercises = emptyList()))
+    }
+
+    suspend fun upsertPlannedExercise(
+        dayKey: String,
+        exercise: PlannedExerciseEntity,
+        workoutName: String = "",
     ) {
-        db.moduleDao().insertWorkoutExercise(
-            WorkoutExerciseEntity(
-                workoutId = workoutId,
-                name = name,
-                sets = sets,
-                reps = reps,
-                weightKg = weightKg,
-                rir = rir,
+        val routine = db.moduleDao().getWorkoutRoutine()
+        val day = routine.day(dayKey)
+        val list = day.exercises.toMutableList()
+        val withId = if (exercise.id == 0L) {
+            exercise.copy(id = System.nanoTime())
+        } else {
+            exercise
+        }
+        val idx = list.indexOfFirst { it.id == withId.id }
+        if (idx >= 0) list[idx] = withId else list.add(withId)
+        val name = workoutName.ifBlank { day.name }.ifBlank { "Workout" }
+        saveRoutineDay(dayKey, day.copy(enabled = true, name = name, exercises = list))
+    }
+
+    suspend fun removePlannedExercise(dayKey: String, exerciseId: Long) {
+        val routine = db.moduleDao().getWorkoutRoutine()
+        val day = routine.day(dayKey)
+        saveRoutineDay(dayKey, day.copy(exercises = day.exercises.filterNot { it.id == exerciseId }))
+    }
+
+    suspend fun reorderPlannedExercise(dayKey: String, exerciseId: Long, moveUp: Boolean) {
+        val routine = db.moduleDao().getWorkoutRoutine()
+        val day = routine.day(dayKey)
+        val list = day.exercises.toMutableList()
+        val idx = list.indexOfFirst { it.id == exerciseId }
+        if (idx < 0) return
+        val target = if (moveUp) idx - 1 else idx + 1
+        if (target !in list.indices) return
+        val tmp = list[idx]
+        list[idx] = list[target]
+        list[target] = tmp
+        saveRoutineDay(dayKey, day.copy(exercises = list))
+    }
+
+    suspend fun startOrGetWorkoutLog(date: String): WorkoutLogEntity {
+        val resolved = date.ifBlank { todayStr() }
+        val existing = db.moduleDao().getWorkoutLog(resolved)
+        if (existing != null) return existing
+        val dayKey = dayOfWeekKey(resolved)
+        val plan = db.moduleDao().getWorkoutRoutine().day(dayKey)
+        val exercises = if (plan.enabled) {
+            plan.exercises.map { pe ->
+                LoggedExerciseEntity(
+                    id = System.nanoTime() + pe.id,
+                    name = pe.name,
+                    sets = emptyList(),
+                )
+            }
+        } else {
+            emptyList()
+        }
+        val log = WorkoutLogEntity(
+            date = resolved,
+            dayOfWeek = dayKey,
+            workoutName = if (plan.enabled) plan.name.ifBlank { "Workout" } else "Workout",
+            exercises = exercises,
+        )
+        db.moduleDao().upsertWorkoutLog(log)
+        return db.moduleDao().getWorkoutLog(resolved)!!
+    }
+
+    suspend fun upsertWorkoutLog(log: WorkoutLogEntity): Long {
+        val id = db.moduleDao().upsertWorkoutLog(log)
+        progression.award(
+            "WORKOUT",
+            "workout_${log.date}",
+            40,
+            mapOf(AttributeCode.STR to 30, AttributeCode.VIT to 10),
+            applyDailyCap = true,
+        )
+        verification.tryAutoComplete(log.date)
+        return id
+    }
+
+    suspend fun deleteWorkoutLog(date: String) {
+        db.moduleDao().deleteWorkoutLog(date)
+    }
+
+    suspend fun removeExerciseFromLog(date: String, exerciseId: Long) {
+        val log = db.moduleDao().getWorkoutLog(date) ?: return
+        upsertWorkoutLog(log.copy(exercises = log.exercises.filterNot { it.id == exerciseId }))
+    }
+
+    suspend fun upsertLoggedExercise(date: String, exercise: LoggedExerciseEntity) {
+        val log = startOrGetWorkoutLog(date)
+        val list = log.exercises.toMutableList()
+        val withId = if (exercise.id == 0L) exercise.copy(id = System.nanoTime()) else exercise
+        val idx = list.indexOfFirst { it.id == withId.id }
+        if (idx >= 0) list[idx] = withId else list.add(withId)
+        upsertWorkoutLog(log.copy(exercises = list))
+    }
+
+    suspend fun workoutsForWeek(weekStart: String): List<WorkoutLogEntity> {
+        val end = LocalDate.parse(weekStart).plusDays(6).toString()
+        return db.moduleDao().getAllWorkoutLogs()
+            .filter { it.date >= weekStart && it.date <= end }
+            .sortedBy { it.date }
+    }
+
+    suspend fun exerciseHistory(name: String, limit: Int = 5): List<Pair<String, LoggedExerciseEntity>> {
+        return db.moduleDao().getAllWorkoutLogs()
+            .sortedByDescending { it.date }
+            .flatMap { log ->
+                log.exercises
+                    .filter { it.name.equals(name, ignoreCase = true) }
+                    .map { log.date to it }
+            }
+            .take(limit)
+    }
+
+    suspend fun getDietLog(date: String): DietLogEntity? = db.moduleDao().getDietLog(date)
+
+    suspend fun upsertDietLog(log: DietLogEntity) {
+        val withTotals = log.copy(dailyTotals = computeDailyTotals(log.meals))
+        db.moduleDao().upsertDietLog(withTotals)
+        progression.award(
+            "NUTRITION",
+            "nutrition_${log.date}",
+            15,
+            mapOf(AttributeCode.VIT to 15),
+            applyDailyCap = true,
+        )
+        verification.tryAutoComplete(log.date)
+    }
+
+    suspend fun deleteDietLog(date: String) {
+        db.moduleDao().deleteDietLog(date)
+    }
+
+    suspend fun addMeal(date: String, name: String): Long {
+        val resolved = date.ifBlank { todayStr() }
+        val log = db.moduleDao().getDietLog(resolved) ?: DietLogEntity(date = resolved)
+        val meal = MealEntity(id = System.nanoTime(), name = name.ifBlank { "Meal" })
+        upsertDietLog(log.copy(meals = log.meals + meal))
+        return meal.id
+    }
+
+    suspend fun deleteMeal(date: String, mealId: Long) {
+        val resolved = date.ifBlank { todayStr() }
+        val log = db.moduleDao().getDietLog(resolved) ?: return
+        upsertDietLog(log.copy(meals = log.meals.filterNot { it.id == mealId }))
+    }
+
+    suspend fun renameMeal(date: String, mealId: Long, name: String) {
+        val resolved = date.ifBlank { todayStr() }
+        val log = db.moduleDao().getDietLog(resolved) ?: return
+        upsertDietLog(
+            log.copy(
+                meals = log.meals.map { if (it.id == mealId) it.copy(name = name) else it },
             ),
         )
     }
 
-    suspend fun getWorkoutExercises(workoutId: Long): List<WorkoutExerciseEntity> =
-        db.moduleDao().getWorkoutExercises(workoutId)
+    suspend fun upsertFood(date: String, mealId: Long, food: FoodItemEntity) {
+        val resolved = date.ifBlank { todayStr() }
+        val log = db.moduleDao().getDietLog(resolved) ?: DietLogEntity(date = resolved)
+        val withId = if (food.id == 0L) food.copy(id = System.nanoTime()) else food
+        val meals = log.meals.toMutableList()
+        val mealIdx = meals.indexOfFirst { it.id == mealId }
+        if (mealIdx < 0) return
+        val foods = meals[mealIdx].foods.toMutableList()
+        val foodIdx = foods.indexOfFirst { it.id == withId.id }
+        if (foodIdx >= 0) foods[foodIdx] = withId else foods.add(withId)
+        meals[mealIdx] = meals[mealIdx].copy(foods = foods)
+        upsertDietLog(log.copy(meals = meals))
+    }
+
+    suspend fun deleteFood(date: String, mealId: Long, foodId: Long) {
+        val resolved = date.ifBlank { todayStr() }
+        val log = db.moduleDao().getDietLog(resolved) ?: return
+        upsertDietLog(
+            log.copy(
+                meals = log.meals.map { meal ->
+                    if (meal.id == mealId) meal.copy(foods = meal.foods.filterNot { it.id == foodId }) else meal
+                },
+            ),
+        )
+    }
 
     suspend fun logNutrition(calories: Int, protein: Int, carbs: Int, fat: Int) {
         val date = todayStr()
@@ -148,6 +341,30 @@ class ModuleService(
         )
         verification.tryAutoComplete(date)
     }
+
+    fun mealTotals(meal: MealEntity): NutritionTotalsEntity = sumFoods(meal.foods)
+
+    private fun computeDailyTotals(meals: List<MealEntity>): NutritionTotalsEntity =
+        sumFoods(meals.flatMap { it.foods })
+
+    private fun sumFoods(foods: List<FoodItemEntity>): NutritionTotalsEntity {
+        var calories = 0
+        var protein = 0
+        var carbs = 0
+        var fat = 0
+        for (f in foods) {
+            calories += f.calories ?: 0
+            protein += f.protein ?: 0
+            carbs += f.carbs ?: 0
+            fat += f.fat ?: 0
+        }
+        return NutritionTotalsEntity(calories, protein, carbs, fat)
+    }
+
+    private fun dayOfWeekKey(date: String): String =
+        runCatching {
+            LocalDate.parse(date).dayOfWeek.getDisplayName(TextStyle.FULL, Locale.ENGLISH).lowercase()
+        }.getOrDefault("")
 
     suspend fun logFocus(durationMinutes: Int, label: String) {
         val date = todayStr()

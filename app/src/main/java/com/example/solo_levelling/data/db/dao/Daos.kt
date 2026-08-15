@@ -5,6 +5,7 @@ import com.example.solo_levelling.data.db.entity.AttributeStatEntity
 import com.example.solo_levelling.data.db.entity.BossEntity
 import com.example.solo_levelling.data.db.entity.BossQuestEntity
 import com.example.solo_levelling.data.db.entity.CareerNodeEntity
+import com.example.solo_levelling.data.db.entity.DietLogEntity
 import com.example.solo_levelling.data.db.entity.DismissedSuggestionEntity
 import com.example.solo_levelling.data.db.entity.DsaProblemEntity
 import com.example.solo_levelling.data.db.entity.FocusSessionEntity
@@ -21,8 +22,8 @@ import com.example.solo_levelling.data.db.entity.SkillEntity
 import com.example.solo_levelling.data.db.entity.StreakStateEntity
 import com.example.solo_levelling.data.db.entity.SyncOutboxEntity
 import com.example.solo_levelling.data.db.entity.UserConfigEntity
-import com.example.solo_levelling.data.db.entity.WorkoutEntity
-import com.example.solo_levelling.data.db.entity.WorkoutExerciseEntity
+import com.example.solo_levelling.data.db.entity.WorkoutLogEntity
+import com.example.solo_levelling.data.db.entity.WorkoutRoutineEntity
 import com.example.solo_levelling.data.db.entity.XpLedgerEntryEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -165,9 +166,33 @@ interface ModuleDao {
 
     suspend fun updateDsa(problem: DsaProblemEntity)
 
-    fun observeWorkouts(): Flow<List<WorkoutEntity>>
+    fun observeWorkouts(): Flow<List<WorkoutLogEntity>>
 
-    suspend fun insertWorkout(workout: WorkoutEntity): Long
+    fun observeWorkoutLog(date: String): Flow<WorkoutLogEntity?>
+
+    suspend fun getWorkoutLog(date: String): WorkoutLogEntity?
+
+    suspend fun upsertWorkoutLog(log: WorkoutLogEntity): Long
+
+    suspend fun getAllWorkoutLogs(): List<WorkoutLogEntity>
+
+    suspend fun deleteWorkoutLog(date: String)
+
+    fun observeWorkoutRoutine(): Flow<WorkoutRoutineEntity>
+
+    suspend fun getWorkoutRoutine(): WorkoutRoutineEntity
+
+    suspend fun upsertWorkoutRoutine(routine: WorkoutRoutineEntity)
+
+    fun observeDietLog(date: String): Flow<DietLogEntity?>
+
+    fun observeDietLogs(): Flow<List<DietLogEntity>>
+
+    suspend fun getDietLog(date: String): DietLogEntity?
+
+    suspend fun upsertDietLog(log: DietLogEntity)
+
+    suspend fun deleteDietLog(date: String)
 
     fun observeNutrition(date: String): Flow<NutritionLogEntity?>
 
@@ -202,10 +227,6 @@ interface ModuleDao {
     suspend fun getBossQuests(bossId: Long): List<BossQuestEntity>
 
     suspend fun updateBossQuest(quest: BossQuestEntity)
-
-    suspend fun insertWorkoutExercise(exercise: WorkoutExerciseEntity): Long
-
-    suspend fun getWorkoutExercises(workoutId: Long): List<WorkoutExerciseEntity>
 
     suspend fun upsertCareerNode(node: CareerNodeEntity): Long
 

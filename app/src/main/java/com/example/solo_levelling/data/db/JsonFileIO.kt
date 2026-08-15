@@ -10,6 +10,8 @@ class JsonFileIO(private val root: File) {
     fun ensureRoot() {
         root.mkdirs()
         tasksDir.mkdirs()
+        File(root, WORKOUTS_LOGS_DIR).mkdirs()
+        File(root, DIET_LOGS_DIR).mkdirs()
     }
 
     fun readText(name: String): String? {
@@ -31,6 +33,19 @@ class JsonFileIO(private val root: File) {
 
     fun delete(name: String) {
         File(root, name).delete()
+    }
+
+    fun listJsonFiles(relativeDir: String): List<File> {
+        val dir = File(root, relativeDir)
+        if (!dir.exists() || !dir.isDirectory) return emptyList()
+        return dir.listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".json") }
+            ?.sortedBy { it.name }
+            ?: emptyList()
+    }
+
+    fun clearDir(relativeDir: String) {
+        listJsonFiles(relativeDir).forEach { it.delete() }
     }
 
     fun listTasks(): List<File> =
@@ -68,5 +83,8 @@ class JsonFileIO(private val root: File) {
     companion object {
         const val TASKS_DIR = "tasks"
         const val TASK_PREFIX = "task-"
+        const val WORKOUTS_LOGS_DIR = "workouts/logs"
+        const val DIET_LOGS_DIR = "diet/logs"
+        const val WORKOUT_ROUTINE_FILE = "workouts/routine.json"
     }
 }

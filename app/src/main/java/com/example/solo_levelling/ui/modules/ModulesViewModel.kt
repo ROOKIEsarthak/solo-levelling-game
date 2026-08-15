@@ -11,10 +11,8 @@ import com.example.solo_levelling.data.db.entity.DsaProblemEntity
 import com.example.solo_levelling.data.db.entity.FocusSessionEntity
 import com.example.solo_levelling.data.db.entity.JournalEntryEntity
 import com.example.solo_levelling.data.db.entity.MetricLogEntity
-import com.example.solo_levelling.data.db.entity.NutritionLogEntity
 import com.example.solo_levelling.data.db.entity.RoutineLogEntity
 import com.example.solo_levelling.data.db.entity.SkillEntity
-import com.example.solo_levelling.data.db.entity.WorkoutEntity
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -41,10 +39,6 @@ class ModulesViewModel(
         container.db.moduleDao().observeDsa()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val workouts: StateFlow<List<WorkoutEntity>> =
-        container.db.moduleDao().observeWorkouts()
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
     val bosses: StateFlow<List<BossEntity>> =
         container.db.moduleDao().observeBosses()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -56,10 +50,6 @@ class ModulesViewModel(
     val careerNodes: StateFlow<List<CareerNodeEntity>> =
         container.db.moduleDao().observeCareerNodes()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    val nutritionToday: StateFlow<NutritionLogEntity?> = today
-        .flatMapLatest { date -> container.db.moduleDao().observeNutrition(date) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val journalToday: StateFlow<JournalEntryEntity?> = today
         .flatMapLatest { date -> container.db.moduleDao().observeJournal(date) }

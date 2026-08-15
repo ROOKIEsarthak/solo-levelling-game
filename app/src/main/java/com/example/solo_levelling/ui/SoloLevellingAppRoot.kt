@@ -8,8 +8,8 @@ import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Spa
 import androidx.compose.material.icons.filled.TaskAlt
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -18,10 +18,12 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -36,13 +38,21 @@ import com.example.solo_levelling.ui.achievements.AchievementsScreen
 import com.example.solo_levelling.ui.analytics.AnalyticsScreen
 import com.example.solo_levelling.ui.character.CharacterScreen
 import com.example.solo_levelling.ui.dashboard.DashboardScreen
+import com.example.solo_levelling.ui.fitness.FitnessScreen
 import com.example.solo_levelling.ui.levelup.LevelUpHost
 import com.example.solo_levelling.ui.modules.ModulesScreen
 import com.example.solo_levelling.ui.navigation.AppRoute
 import com.example.solo_levelling.ui.onboarding.OnboardingScreen
 import com.example.solo_levelling.ui.quests.QuestsScreen
 import com.example.solo_levelling.ui.settings.SettingsScreen
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+private const val WelcomeMinMs = 3_200L
+
+/** True when bootstrap is ready and the minimum welcome duration has elapsed. */
+fun canEnterApp(ready: Boolean, elapsedMs: Long, minMs: Long = WelcomeMinMs): Boolean =
+    ready && elapsedMs >= minMs
 
 @Composable
 fun SoloLevellingAppRoot(container: AppContainer) {
@@ -50,10 +60,14 @@ fun SoloLevellingAppRoot(container: AppContainer) {
     val ready by bootstrap.ready.collectAsStateWithLifecycle()
     val onboardingDone by bootstrap.onboardingDone.collectAsStateWithLifecycle()
 
-    if (!ready) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
-        }
+    var welcomeElapsedMs by remember { mutableStateOf(0L) }
+    LaunchedEffect(Unit) {
+        delay(WelcomeMinMs)
+        welcomeElapsedMs = WelcomeMinMs
+    }
+
+    if (!canEnterApp(ready, welcomeElapsedMs)) {
+        WelcomeSplash()
         return
     }
 
@@ -65,6 +79,7 @@ fun SoloLevellingAppRoot(container: AppContainer) {
         AppRoute.Dashboard.route,
         AppRoute.Quests.route,
         AppRoute.Character.route,
+        AppRoute.Fitness.route,
         AppRoute.Modules.route,
         AppRoute.Analytics.route,
     )
@@ -125,6 +140,7 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                 }
                 composable(AppRoute.Character.route) { CharacterScreen(container) }
                 composable(AppRoute.Achievements.route) { AchievementsScreen(container) }
+                composable(AppRoute.Fitness.route) { FitnessScreen(container) }
                 composable(AppRoute.Modules.route) { ModulesScreen(container) }
                 composable(AppRoute.Analytics.route) { AnalyticsScreen(container) }
                 composable(AppRoute.Settings.route) {
@@ -145,7 +161,8 @@ private data class TabItem(val route: AppRoute, val label: String, val icon: Ima
 private val tabItems = listOf(
     TabItem(AppRoute.Dashboard, "Home", Icons.Default.Home),
     TabItem(AppRoute.Quests, "Quests", Icons.Default.TaskAlt),
-    TabItem(AppRoute.Character, "Character", Icons.Default.Person),
-    TabItem(AppRoute.Modules, "Life", Icons.Default.FitnessCenter),
+    TabItem(AppRoute.Character, "Self", Icons.Default.Person),
+    TabItem(AppRoute.Fitness, "Gym", Icons.Default.FitnessCenter),
+    TabItem(AppRoute.Modules, "Life", Icons.Default.Spa),
     TabItem(AppRoute.Analytics, "Review", Icons.Default.Analytics),
 )

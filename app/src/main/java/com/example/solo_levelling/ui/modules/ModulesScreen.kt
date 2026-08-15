@@ -31,7 +31,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.data.db.entity.CareerNodeEntity
 import com.example.solo_levelling.data.db.entity.DsaProblemEntity
-import com.example.solo_levelling.data.db.entity.WorkoutEntity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -39,11 +38,9 @@ import kotlinx.coroutines.launch
 fun ModulesScreen(container: AppContainer) {
     val vm: ModulesViewModel = viewModel(factory = ModulesViewModel.factory(container))
     val dsa by vm.dsa.collectAsStateWithLifecycle()
-    val workouts by vm.workouts.collectAsStateWithLifecycle()
     val bosses by vm.bosses.collectAsStateWithLifecycle()
     val skills by vm.skills.collectAsStateWithLifecycle()
     val careerNodes by vm.careerNodes.collectAsStateWithLifecycle()
-    val nutritionToday by vm.nutritionToday.collectAsStateWithLifecycle()
     val journalToday by vm.journalToday.collectAsStateWithLifecycle()
     val focusToday by vm.focusToday.collectAsStateWithLifecycle()
     val routinesToday by vm.routinesToday.collectAsStateWithLifecycle()
@@ -53,16 +50,6 @@ fun ModulesScreen(container: AppContainer) {
     var dsaTitle by remember { mutableStateOf("") }
     var dsaDifficulty by remember { mutableStateOf("MEDIUM") }
     var dsaTopic by remember { mutableStateOf("") }
-    var workoutType by remember { mutableStateOf("") }
-    var workoutDuration by remember { mutableStateOf("") }
-    var exerciseName by remember { mutableStateOf("") }
-    var exerciseSets by remember { mutableStateOf("") }
-    var exerciseReps by remember { mutableStateOf("") }
-    var exerciseWeight by remember { mutableStateOf("") }
-    var calories by remember { mutableStateOf("") }
-    var protein by remember { mutableStateOf("") }
-    var carbs by remember { mutableStateOf("") }
-    var fat by remember { mutableStateOf("") }
     var focusMinutes by remember { mutableStateOf("25") }
     var focusLabel by remember { mutableStateOf("Deep Work") }
     var timerRunning by remember { mutableStateOf(false) }
@@ -71,7 +58,6 @@ fun ModulesScreen(container: AppContainer) {
     var weight by remember { mutableStateOf("") }
     var journal by remember { mutableStateOf("") }
     var bossTitle by remember { mutableStateOf("") }
-    var workoutExercises by remember { mutableStateOf<Map<Long, List<String>>>(emptyMap()) }
 
     LaunchedEffect(journalToday?.content) {
         journalToday?.content?.let { if (journal.isEmpty()) journal = it }
@@ -86,15 +72,6 @@ fun ModulesScreen(container: AppContainer) {
             val mins = focusMinutes.toIntOrNull()?.coerceAtLeast(1) ?: 25
             container.modules.logFocus(mins, focusLabel.ifBlank { "Focus" })
         }
-    }
-
-    LaunchedEffect(workouts.firstOrNull()?.id) {
-        val latest = workouts.firstOrNull() ?: return@LaunchedEffect
-        if (workoutExercises.containsKey(latest.id)) return@LaunchedEffect
-        val exercises = container.modules.getWorkoutExercises(latest.id)
-        workoutExercises = workoutExercises + (latest.id to exercises.map { ex ->
-            "${ex.name}: ${ex.sets}x${ex.reps} @ ${ex.weightKg}kg"
-        })
     }
 
     val routineKinds = listOf("WAKE", "SLEEP", "READ", "MEDITATE")
@@ -133,72 +110,6 @@ fun ModulesScreen(container: AppContainer) {
             onSolve = { scope.launch { container.modules.solveDsa(it) } },
             onMaster = { scope.launch { container.modules.masterDsa(it) } },
         )
-
-        FitnessSection(
-            workouts = workouts.take(5),
-            workoutExercises = workoutExercises,
-            workoutType = workoutType,
-            workoutDuration = workoutDuration,
-            exerciseName = exerciseName,
-            exerciseSets = exerciseSets,
-            exerciseReps = exerciseReps,
-            exerciseWeight = exerciseWeight,
-            onWorkoutTypeChange = { workoutType = it },
-            onWorkoutDurationChange = { workoutDuration = it },
-            onExerciseNameChange = { exerciseName = it },
-            onExerciseSetsChange = { exerciseSets = it },
-            onExerciseRepsChange = { exerciseReps = it },
-            onExerciseWeightChange = { exerciseWeight = it },
-            onLogWorkout = {
-                scope.launch {
-                    val duration = workoutDuration.toIntOrNull() ?: return@launch
-                    if (workoutType.isBlank()) return@launch
-                    container.modules.logWorkout(workoutType, duration)
-                    workoutType = ""
-                    workoutDuration = ""
-                }
-            },
-            onAddExercise = { workoutId ->
-                scope.launch {
-                    val sets = exerciseSets.toIntOrNull() ?: return@launch
-                    val reps = exerciseReps.toIntOrNull() ?: return@launch
-                    val weightKg = exerciseWeight.toFloatOrNull() ?: return@launch
-                    if (exerciseName.isBlank()) return@launch
-                    container.modules.addWorkoutExercise(workoutId, exerciseName, sets, reps, weightKg)
-                    val exercises = container.modules.getWorkoutExercises(workoutId)
-                    workoutExercises = workoutExercises + (workoutId to exercises.map { ex ->
-                        "${ex.name}: ${ex.sets}x${ex.reps} @ ${ex.weightKg}kg"
-                    })
-                    exerciseName = ""
-                    exerciseSets = ""
-                    exerciseReps = ""
-                    exerciseWeight = ""
-                }
-            },
-        )
-
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Nutrition", style = MaterialTheme.typography.titleMedium)
-                OutlinedTextField(calories, { calories = it }, label = { Text("Calories") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(protein, { protein = it }, label = { Text("Protein (g)") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(carbs, { carbs = it }, label = { Text("Carbs (g)") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(fat, { fat = it }, label = { Text("Fat (g)") }, modifier = Modifier.fillMaxWidth())
-                Button(onClick = {
-                    scope.launch {
-                        container.modules.logNutrition(
-                            calories.toIntOrNull() ?: 0,
-                            protein.toIntOrNull() ?: 0,
-                            carbs.toIntOrNull() ?: 0,
-                            fat.toIntOrNull() ?: 0,
-                        )
-                    }
-                }) { Text("Save nutrition") }
-                nutritionToday?.let { n ->
-                    Text("Today: ${n.calories} cal · P${n.protein} C${n.carbs} F${n.fat}")
-                } ?: Text("No nutrition logged today")
-            }
-        }
 
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -420,47 +331,6 @@ private fun DsaSection(
                         Button(onClick = { onMaster(p.id) }) { Text("Master") }
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FitnessSection(
-    workouts: List<WorkoutEntity>,
-    workoutExercises: Map<Long, List<String>>,
-    workoutType: String,
-    workoutDuration: String,
-    exerciseName: String,
-    exerciseSets: String,
-    exerciseReps: String,
-    exerciseWeight: String,
-    onWorkoutTypeChange: (String) -> Unit,
-    onWorkoutDurationChange: (String) -> Unit,
-    onExerciseNameChange: (String) -> Unit,
-    onExerciseSetsChange: (String) -> Unit,
-    onExerciseRepsChange: (String) -> Unit,
-    onExerciseWeightChange: (String) -> Unit,
-    onLogWorkout: () -> Unit,
-    onAddExercise: (Long) -> Unit,
-) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Fitness", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(workoutType, onWorkoutTypeChange, label = { Text("Type") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(workoutDuration, onWorkoutDurationChange, label = { Text("Duration (min)") }, modifier = Modifier.fillMaxWidth())
-            Button(onClick = onLogWorkout) { Text("Log workout") }
-            workouts.forEach { w ->
-                Text("${w.date} · ${w.type} · ${w.durationMinutes}m")
-                workoutExercises[w.id]?.forEach { ex -> Text("  $ex", style = MaterialTheme.typography.bodySmall) }
-            }
-            workouts.firstOrNull()?.let { latest ->
-                Text("Add exercise to latest workout", style = MaterialTheme.typography.titleSmall)
-                OutlinedTextField(exerciseName, onExerciseNameChange, label = { Text("Exercise") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(exerciseSets, onExerciseSetsChange, label = { Text("Sets") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(exerciseReps, onExerciseRepsChange, label = { Text("Reps") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(exerciseWeight, onExerciseWeightChange, label = { Text("Weight (kg)") }, modifier = Modifier.fillMaxWidth())
-                Button(onClick = { onAddExercise(latest.id) }) { Text("Add exercise") }
             }
         }
     }

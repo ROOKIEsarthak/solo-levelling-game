@@ -38,6 +38,10 @@ internal data class NextIdsJson(
     val dismissed: Long = 1,
     val routine: Long = 1,
     val syncOutbox: Long = 1,
+    val plannedExercise: Long = 1,
+    val loggedExercise: Long = 1,
+    val dietMeal: Long = 1,
+    val dietFood: Long = 1,
 )
 
 internal data class ProgressJson(

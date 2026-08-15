@@ -8,13 +8,21 @@ import com.example.solo_levelling.data.db.JsonDatabase
 import com.example.solo_levelling.data.db.entity.AttributeStatEntity
 import com.example.solo_levelling.data.db.entity.CareerNodeEntity
 import com.example.solo_levelling.data.db.entity.DsaProblemEntity
+import com.example.solo_levelling.data.db.entity.FoodItemEntity
+import com.example.solo_levelling.data.db.entity.LoggedExerciseEntity
+import com.example.solo_levelling.data.db.entity.LoggedSetEntity
+import com.example.solo_levelling.data.db.entity.PlannedExerciseEntity
 import com.example.solo_levelling.data.db.entity.PlayerProfileEntity
+import com.example.solo_levelling.data.db.entity.RepRangeEntity
+import com.example.solo_levelling.data.db.entity.WorkoutDayPlanEntity
+import com.example.solo_levelling.data.db.entity.WorkoutLogEntity
 import com.example.solo_levelling.domain.model.AttributeCode
 import com.example.solo_levelling.domain.service.ProgressionService.AwardResult
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -111,5 +119,102 @@ class ModuleServiceTest {
         assertEquals(2100, log!!.calories)
         assertEquals(150, log.protein)
         assertTrue(progression.award("NUTRITION", "nutrition_2026-08-15", 15) is AwardResult.AlreadyAwarded)
+    }
+
+    @Test
+    fun p_saveRoutineAndLogSets_persistsIndependently() = runTest {
+        seedProfile()
+        service.saveRoutineDay(
+            "monday",
+            WorkoutDayPlanEntity(
+                enabled = true,
+                name = "Chest + Triceps",
+                exercises = listOf(
+                    PlannedExerciseEntity(
+                        id = 1,
+                        name = "Bench Press",
+                        targetMuscle = "Chest",
+                        sets = 3,
+                        repRange = RepRangeEntity(8, 12),
+                    ),
+                ),
+            ),
+        )
+        assertEquals("Chest + Triceps", service.getWorkoutRoutine().monday.name)
+
+        val started = service.startOrGetWorkoutLog("2026-08-17")
+        assertEquals("Chest + Triceps", started.workoutName)
+        val planned = started.exercises.first { it.name == "Bench Press" }
+        service.upsertLoggedExercise(
+            "2026-08-17",
+            planned.copy(
+                sets = listOf(
+                    LoggedSetEntity(60f, 10),
+                    LoggedSetEntity(60f, 9),
+                    LoggedSetEntity(65f, 7),
+                ),
+            ),
+        )
+        val log = db.moduleDao().getWorkoutLog("2026-08-17")!!
+        assertEquals(1, log.exercises.size)
+        assertEquals(3, log.exercises.first().sets.size)
+        assertEquals(65f, log.exercises.first().sets[2].weight)
+        assertTrue(
+            progression.award("WORKOUT", "workout_2026-08-17", 40) is AwardResult.AlreadyAwarded,
+        )
+    }
+
+    @Test
+    fun n_deleteWorkoutLog_removesFileAndMemory() = runTest {
+        seedProfile()
+        service.upsertWorkoutLog(WorkoutLogEntity(date = "2026-08-17", workoutName = "Legs"))
+        service.deleteWorkoutLog("2026-08-17")
+        assertNull(db.moduleDao().getWorkoutLog("2026-08-17"))
+    }
+
+    @Test
+    fun e_dietTotals_sumOptionalMacros() = runTest {
+        seedProfile()
+        val mealId = service.addMeal("2026-08-17", "Breakfast")
+        service.upsertFood(
+            "2026-08-17",
+            mealId,
+            FoodItemEntity(name = "Oats", quantity = 60f, unit = "g", calories = 228, protein = 8, carbs = 40, fat = 4),
+        )
+        service.upsertFood(
+            "2026-08-17",
+            mealId,
+            FoodItemEntity(name = "Banana"),
+        )
+        val diet = db.moduleDao().getDietLog("2026-08-17")!!
+        assertEquals(228, diet.dailyTotals.calories)
+        assertEquals(8, diet.dailyTotals.protein)
+        assertEquals(2, diet.meals.first().foods.size)
+        val nutrition = db.moduleDao().getNutrition("2026-08-17")
+        assertEquals(228, nutrition!!.calories)
+    }
+
+    @Test
+    fun n_addMeal_blankDate_fallsBackToToday() = runTest {
+        seedProfile()
+        service.addMeal("", "Snack")
+        val diet = db.moduleDao().getDietLog("2026-08-15")
+        assertNotNull(diet)
+        assertEquals("Snack", diet!!.meals.first().name)
+        assertNull(db.moduleDao().getDietLog(""))
+    }
+
+    @Test
+    fun p_upsertPlannedExercise_appliesWorkoutName() = runTest {
+        seedProfile()
+        service.upsertPlannedExercise(
+            "tuesday",
+            PlannedExerciseEntity(name = "Squat", targetMuscle = "Legs", sets = 4),
+            workoutName = "Leg Day",
+        )
+        val day = service.getWorkoutRoutine().tuesday
+        assertEquals(true, day.enabled)
+        assertEquals("Leg Day", day.name)
+        assertEquals("Squat", day.exercises.first().name)
     }
 }

@@ -128,6 +128,113 @@ data class WorkoutEntity(
     val completed: Boolean = true,
 )
 
+data class RepRangeEntity(
+    val min: Int = 0,
+    val max: Int = 0,
+)
+
+data class PlannedExerciseEntity(
+    val id: Long = 0,
+    val name: String,
+    val targetMuscle: String = "",
+    val sets: Int = 3,
+    val repRange: RepRangeEntity = RepRangeEntity(8, 12),
+    val plannedWeightKg: Float? = null,
+    val notes: String = "",
+)
+
+data class WorkoutDayPlanEntity(
+    val enabled: Boolean = false,
+    val name: String = "",
+    val exercises: List<PlannedExerciseEntity> = emptyList(),
+)
+
+data class WorkoutRoutineEntity(
+    val monday: WorkoutDayPlanEntity = WorkoutDayPlanEntity(),
+    val tuesday: WorkoutDayPlanEntity = WorkoutDayPlanEntity(),
+    val wednesday: WorkoutDayPlanEntity = WorkoutDayPlanEntity(),
+    val thursday: WorkoutDayPlanEntity = WorkoutDayPlanEntity(),
+    val friday: WorkoutDayPlanEntity = WorkoutDayPlanEntity(),
+    val saturday: WorkoutDayPlanEntity = WorkoutDayPlanEntity(),
+    val sunday: WorkoutDayPlanEntity = WorkoutDayPlanEntity(),
+) {
+    fun day(key: String): WorkoutDayPlanEntity = when (key.lowercase()) {
+        "monday" -> monday
+        "tuesday" -> tuesday
+        "wednesday" -> wednesday
+        "thursday" -> thursday
+        "friday" -> friday
+        "saturday" -> saturday
+        "sunday" -> sunday
+        else -> WorkoutDayPlanEntity()
+    }
+
+    fun withDay(key: String, plan: WorkoutDayPlanEntity): WorkoutRoutineEntity = when (key.lowercase()) {
+        "monday" -> copy(monday = plan)
+        "tuesday" -> copy(tuesday = plan)
+        "wednesday" -> copy(wednesday = plan)
+        "thursday" -> copy(thursday = plan)
+        "friday" -> copy(friday = plan)
+        "saturday" -> copy(saturday = plan)
+        "sunday" -> copy(sunday = plan)
+        else -> this
+    }
+}
+
+data class LoggedSetEntity(
+    val weight: Float = 0f,
+    val reps: Int = 0,
+    val rpe: Float? = null,
+)
+
+data class LoggedExerciseEntity(
+    val id: Long = 0,
+    val name: String,
+    val notes: String = "",
+    val sets: List<LoggedSetEntity> = emptyList(),
+)
+
+data class WorkoutLogEntity(
+    val id: Long = 0,
+    val date: String,
+    val dayOfWeek: String = "",
+    val workoutName: String = "",
+    val durationMinutes: Int = 0,
+    val notes: String = "",
+    val exercises: List<LoggedExerciseEntity> = emptyList(),
+)
+
+data class NutritionTotalsEntity(
+    val calories: Int = 0,
+    val protein: Int = 0,
+    val carbs: Int = 0,
+    val fat: Int = 0,
+)
+
+data class FoodItemEntity(
+    val id: Long = 0,
+    val name: String,
+    val quantity: Float? = null,
+    val unit: String? = null,
+    val calories: Int? = null,
+    val protein: Int? = null,
+    val carbs: Int? = null,
+    val fat: Int? = null,
+    val notes: String = "",
+)
+
+data class MealEntity(
+    val id: Long = 0,
+    val name: String,
+    val foods: List<FoodItemEntity> = emptyList(),
+)
+
+data class DietLogEntity(
+    val date: String,
+    val meals: List<MealEntity> = emptyList(),
+    val dailyTotals: NutritionTotalsEntity = NutritionTotalsEntity(),
+)
+
 data class NutritionLogEntity(
     val date: String,
     val calories: Int = 0,

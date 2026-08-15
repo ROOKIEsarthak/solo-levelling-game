@@ -48,4 +48,30 @@ class JsonFileIOPureTest {
         assertEquals("""{"name":"Keep"}""", io.readText("user.json"))
         assertFalse(File(tmp.root, "tasks/task-1.json").exists())
     }
+
+    @Test
+    fun p_nestedPath_writeAndListJsonFiles() {
+        val io = JsonFileIO(tmp.root)
+        io.writeText("workouts/logs/2026-08-17.json", """{"date":"2026-08-17"}""")
+        val files = io.listJsonFiles("workouts/logs")
+        assertEquals(1, files.size)
+        assertEquals("2026-08-17.json", files[0].name)
+        assertEquals("""{"date":"2026-08-17"}""", io.readText("workouts/logs/2026-08-17.json"))
+    }
+
+    @Test
+    fun n_listJsonFiles_missingDir_returnsEmpty() {
+        val io = JsonFileIO(tmp.root)
+        assertTrue(io.listJsonFiles("diet/logs").isEmpty())
+    }
+
+    @Test
+    fun e_clearDir_removesNestedJsonOnly() {
+        val io = JsonFileIO(tmp.root)
+        io.writeText("workouts/routine.json", """{"monday":{}}""")
+        io.writeText("workouts/logs/2026-08-17.json", "{}")
+        io.clearDir("workouts/logs")
+        assertEquals(0, io.listJsonFiles("workouts/logs").size)
+        assertTrue(io.readText("workouts/routine.json")!!.isNotBlank())
+    }
 }

@@ -14,12 +14,18 @@ import com.example.solo_levelling.data.db.entity.AttributeStatEntity
 import com.example.solo_levelling.data.db.entity.BossEntity
 import com.example.solo_levelling.data.db.entity.BossQuestEntity
 import com.example.solo_levelling.data.db.entity.CareerNodeEntity
+import com.example.solo_levelling.data.db.entity.DietLogEntity
 import com.example.solo_levelling.data.db.entity.DismissedSuggestionEntity
 import com.example.solo_levelling.data.db.entity.DsaProblemEntity
 import com.example.solo_levelling.data.db.entity.FocusSessionEntity
+import com.example.solo_levelling.data.db.entity.FoodItemEntity
 import com.example.solo_levelling.data.db.entity.JournalEntryEntity
+import com.example.solo_levelling.data.db.entity.LoggedExerciseEntity
+import com.example.solo_levelling.data.db.entity.LoggedSetEntity
+import com.example.solo_levelling.data.db.entity.MealEntity
 import com.example.solo_levelling.data.db.entity.MetricLogEntity
 import com.example.solo_levelling.data.db.entity.NutritionLogEntity
+import com.example.solo_levelling.data.db.entity.NutritionTotalsEntity
 import com.example.solo_levelling.data.db.entity.PlayerAchievementEntity
 import com.example.solo_levelling.data.db.entity.PlayerProfileEntity
 import com.example.solo_levelling.data.db.entity.QuestInstanceEntity
@@ -32,6 +38,8 @@ import com.example.solo_levelling.data.db.entity.SyncOutboxEntity
 import com.example.solo_levelling.data.db.entity.UserConfigEntity
 import com.example.solo_levelling.data.db.entity.WorkoutEntity
 import com.example.solo_levelling.data.db.entity.WorkoutExerciseEntity
+import com.example.solo_levelling.data.db.entity.WorkoutLogEntity
+import com.example.solo_levelling.data.db.entity.WorkoutRoutineEntity
 import com.example.solo_levelling.data.db.entity.XpLedgerEntryEntity
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -46,6 +54,9 @@ import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 import java.io.File
+import java.time.LocalDate
+import java.time.format.TextStyle
+import java.util.Locale
 
 private class TransactionContext : CoroutineContext.Element {
     override val key: CoroutineContext.Key<*> = Key
@@ -71,9 +82,9 @@ class JsonDatabase(private val rootDir: File) {
     private var careerNodes = mutableListOf<CareerNodeEntity>()
     private var syncOutbox = mutableListOf<SyncOutboxEntity>()
     private var dismissed = mutableListOf<DismissedSuggestionEntity>()
-    private var workouts = mutableListOf<WorkoutEntity>()
-    private var workoutExercises = mutableListOf<WorkoutExerciseEntity>()
-    private var nutrition = mutableListOf<NutritionLogEntity>()
+    private var workoutRoutine = WorkoutRoutineEntity()
+    private var workoutLogs = mutableMapOf<String, WorkoutLogEntity>()
+    private var dietLogs = mutableMapOf<String, DietLogEntity>()
     private var focus = mutableListOf<FocusSessionEntity>()
     private var journal = mutableListOf<JournalEntryEntity>()
     private var metrics = mutableListOf<MetricLogEntity>()
@@ -91,12 +102,16 @@ class JsonDatabase(private val rootDir: File) {
     private val bossesFlow = MutableStateFlow<List<BossEntity>>(emptyList())
     private val skillsFlow = MutableStateFlow<List<SkillEntity>>(emptyList())
     private val dsaFlow = MutableStateFlow<List<DsaProblemEntity>>(emptyList())
-    private val workoutsFlow = MutableStateFlow<List<WorkoutEntity>>(emptyList())
+    private val workoutsFlow = MutableStateFlow<List<WorkoutLogEntity>>(emptyList())
+    private val workoutRoutineFlow = MutableStateFlow(WorkoutRoutineEntity())
+    private val dietLogsFlow = MutableStateFlow<List<DietLogEntity>>(emptyList())
     private val careerNodesFlow = MutableStateFlow<List<CareerNodeEntity>>(emptyList())
     private val activeSeasonFlow = MutableStateFlow<SeasonEntity?>(null)
     private val recentMetricsFlow = MutableStateFlow<List<MetricLogEntity>>(emptyList())
     private val configFlows = mutableMapOf<String, MutableStateFlow<UserConfigEntity?>>()
     private val nutritionFlows = mutableMapOf<String, MutableStateFlow<NutritionLogEntity?>>()
+    private val dietLogFlows = mutableMapOf<String, MutableStateFlow<DietLogEntity?>>()
+    private val workoutLogFlows = mutableMapOf<String, MutableStateFlow<WorkoutLogEntity?>>()
     private val focusFlows = mutableMapOf<String, MutableStateFlow<List<FocusSessionEntity>>>()
     private val journalFlows = mutableMapOf<String, MutableStateFlow<JournalEntryEntity?>>()
     private val routineFlows = mutableMapOf<String, MutableStateFlow<List<RoutineLogEntity>>>()
@@ -162,15 +177,16 @@ class JsonDatabase(private val rootDir: File) {
         careerNodes.clear()
         syncOutbox.clear()
         dismissed.clear()
-        workouts.clear()
-        workoutExercises.clear()
-        nutrition.clear()
+        workoutLogs.clear()
+        dietLogs.clear()
         focus.clear()
         journal.clear()
         metrics.clear()
         routines.clear()
         dsa.clear()
         io.clearTasks()
+        io.clearDir(JsonFileIO.WORKOUTS_LOGS_DIR)
+        io.clearDir(JsonFileIO.DIET_LOGS_DIR)
         persistAll()
         emitAllFlows()
     }
@@ -218,9 +234,6 @@ class JsonDatabase(private val rootDir: File) {
         careerNodes = readList(FILE_CAREER_NODES)
         syncOutbox = readList(FILE_SYNC_OUTBOX)
         dismissed = readList(FILE_DISMISSED)
-        workouts = readList(FILE_WORKOUTS)
-        workoutExercises = readList(FILE_WORKOUT_EXERCISES)
-        nutrition = readList(FILE_NUTRITION)
         focus = readList(FILE_FOCUS)
         journal = readList(FILE_JOURNAL)
         metrics = readList(FILE_METRICS)
@@ -231,6 +244,112 @@ class JsonDatabase(private val rootDir: File) {
                 gson.fromJson(file.readText(), QuestInstanceEntity::class.java)
             }.getOrNull()
         }.toMutableList()
+        loadWorkoutAndDiet()
+    }
+
+    private fun loadWorkoutAndDiet() {
+        workoutRoutine = io.readText(JsonFileIO.WORKOUT_ROUTINE_FILE)
+            ?.let { runCatching { gson.fromJson(it, WorkoutRoutineEntity::class.java) }.getOrNull() }
+            ?: WorkoutRoutineEntity()
+        workoutLogs.clear()
+        io.listJsonFiles(JsonFileIO.WORKOUTS_LOGS_DIR).forEach { file ->
+            runCatching {
+                gson.fromJson(file.readText(), WorkoutLogEntity::class.java)
+            }.getOrNull()?.let { log -> workoutLogs[log.date] = log }
+        }
+        dietLogs.clear()
+        io.listJsonFiles(JsonFileIO.DIET_LOGS_DIR).forEach { file ->
+            runCatching {
+                gson.fromJson(file.readText(), DietLogEntity::class.java)
+            }.getOrNull()?.let { log -> dietLogs[log.date] = log }
+        }
+        migrateLegacyFitnessIfNeeded()
+    }
+
+    private fun migrateLegacyFitnessIfNeeded() {
+        val legacyWorkouts = readList<WorkoutEntity>(FILE_WORKOUTS)
+        val legacyExercises = readList<WorkoutExerciseEntity>(FILE_WORKOUT_EXERCISES)
+        val legacyNutrition = readList<NutritionLogEntity>(FILE_NUTRITION)
+        if (workoutLogs.isEmpty() && legacyWorkouts.isNotEmpty()) {
+            val byWorkout = legacyExercises.groupBy { it.workoutId }
+            for (w in legacyWorkouts) {
+                val exercises = byWorkout[w.id].orEmpty().map { ex ->
+                    LoggedExerciseEntity(
+                        id = ex.id,
+                        name = ex.name,
+                        sets = List(ex.sets.coerceAtLeast(1)) {
+                            LoggedSetEntity(weight = ex.weightKg, reps = ex.reps)
+                        },
+                    )
+                }
+                workoutLogs[w.date] = WorkoutLogEntity(
+                    id = w.id,
+                    date = w.date,
+                    dayOfWeek = dayOfWeekForDate(w.date),
+                    workoutName = w.type,
+                    durationMinutes = w.durationMinutes,
+                    notes = w.notes,
+                    exercises = exercises,
+                )
+            }
+            workoutLogs.values.forEach { persistWorkoutLogFile(it) }
+            io.delete(FILE_WORKOUTS)
+            io.delete(FILE_WORKOUT_EXERCISES)
+        }
+        if (dietLogs.isEmpty() && legacyNutrition.isNotEmpty()) {
+            for (n in legacyNutrition) {
+                val food = FoodItemEntity(
+                    id = 1,
+                    name = "Logged macros",
+                    calories = n.calories,
+                    protein = n.protein,
+                    carbs = n.carbs,
+                    fat = n.fat,
+                )
+                val meal = MealEntity(id = 1, name = "Logged macros", foods = listOf(food))
+                dietLogs[n.date] = DietLogEntity(
+                    date = n.date,
+                    meals = listOf(meal),
+                    dailyTotals = NutritionTotalsEntity(n.calories, n.protein, n.carbs, n.fat),
+                )
+            }
+            dietLogs.values.forEach { persistDietLogFile(it) }
+            io.delete(FILE_NUTRITION)
+        }
+    }
+
+    private fun dayOfWeekForDate(date: String): String =
+        runCatching {
+            LocalDate.parse(date).dayOfWeek.getDisplayName(TextStyle.FULL, Locale.ENGLISH).lowercase()
+        }.getOrDefault("")
+
+    private fun nutritionFromDiet(date: String): NutritionLogEntity? {
+        val log = dietLogs[date] ?: return null
+        val t = log.dailyTotals
+        return NutritionLogEntity(date, t.calories, t.protein, t.carbs, t.fat)
+    }
+
+    private fun persistWorkoutLogFile(log: WorkoutLogEntity) {
+        io.writeText("${JsonFileIO.WORKOUTS_LOGS_DIR}/${log.date}.json", gson.toJson(log))
+    }
+
+    private fun persistDietLogFile(log: DietLogEntity) {
+        io.writeText("${JsonFileIO.DIET_LOGS_DIR}/${log.date}.json", gson.toJson(log))
+    }
+
+    private fun persistWorkoutRoutine() {
+        io.writeText(JsonFileIO.WORKOUT_ROUTINE_FILE, gson.toJson(workoutRoutine))
+    }
+
+    private fun emitWorkoutFlows() {
+        workoutsFlow.value = workoutLogs.values.sortedByDescending { it.date }
+        workoutLogFlows.forEach { (date, flow) -> flow.value = workoutLogs[date] }
+    }
+
+    private fun emitDietFlows() {
+        dietLogsFlow.value = dietLogs.values.sortedByDescending { it.date }
+        dietLogFlows.forEach { (date, flow) -> flow.value = dietLogs[date] }
+        nutritionFlows.forEach { (date, flow) -> flow.value = nutritionFromDiet(date) }
     }
 
     private fun persistAll() {
@@ -246,9 +365,9 @@ class JsonDatabase(private val rootDir: File) {
         io.writeText(FILE_CAREER_NODES, gson.toJson(careerNodes))
         io.writeText(FILE_SYNC_OUTBOX, gson.toJson(syncOutbox))
         io.writeText(FILE_DISMISSED, gson.toJson(dismissed))
-        io.writeText(FILE_WORKOUTS, gson.toJson(workouts))
-        io.writeText(FILE_WORKOUT_EXERCISES, gson.toJson(workoutExercises))
-        io.writeText(FILE_NUTRITION, gson.toJson(nutrition))
+        persistWorkoutRoutine()
+        workoutLogs.values.forEach { persistWorkoutLogFile(it) }
+        dietLogs.values.forEach { persistDietLogFile(it) }
         io.writeText(FILE_FOCUS, gson.toJson(focus))
         io.writeText(FILE_JOURNAL, gson.toJson(journal))
         io.writeText(FILE_METRICS, gson.toJson(metrics))
@@ -308,16 +427,15 @@ class JsonDatabase(private val rootDir: File) {
         bossesFlow.value = bosses.sortedByDescending { it.id }
         skillsFlow.value = skills.sortedWith(compareBy({ it.domain }, { it.name }))
         dsaFlow.value = dsa.sortedByDescending { it.id }
-        workoutsFlow.value = workouts.sortedByDescending { it.date }
+        workoutRoutineFlow.value = workoutRoutine
+        emitWorkoutFlows()
+        emitDietFlows()
         careerNodesFlow.value = careerNodes.sortedWith(compareBy({ it.track }, { it.orderIndex }))
         activeSeasonFlow.value = seasons.firstOrNull { it.status == "ACTIVE" }
         recentMetricsFlow.value = metrics.sortedByDescending { it.recordedAtEpochMs }
         configFlows.values.forEach { flow ->
             val key = flow.value?.key
             flow.value = userJson.configs.firstOrNull { it.key == key }
-        }
-        nutritionFlows.forEach { (date, flow) ->
-            flow.value = nutrition.firstOrNull { it.date == date }
         }
         focusFlows.forEach { (date, flow) ->
             flow.value = focus.filter { it.date == date }.sortedByDescending { it.id }
@@ -763,32 +881,98 @@ class JsonDatabase(private val rootDir: File) {
             }
         }
 
-        override fun observeWorkouts(): Flow<List<WorkoutEntity>> = workoutsFlow
+        override fun observeWorkouts(): Flow<List<WorkoutLogEntity>> = workoutsFlow
 
-        override suspend fun insertWorkout(workout: WorkoutEntity): Long = withWriteLock {
-            val id = if (workout.id == 0L) {
+        override fun observeWorkoutLog(date: String): Flow<WorkoutLogEntity?> =
+            workoutLogFlows.getOrPut(date) { MutableStateFlow(workoutLogs[date]) }
+
+        override suspend fun getWorkoutLog(date: String): WorkoutLogEntity? = withWriteLock {
+            workoutLogs[date]
+        }
+
+        override suspend fun upsertWorkoutLog(log: WorkoutLogEntity): Long = withWriteLock {
+            val id = if (log.id == 0L) {
                 nextId({ it.workout }) { ids, next -> ids.copy(workout = next) }
             } else {
-                workout.id
+                log.id
             }
-            val saved = workout.copy(id = id)
-            workouts.add(saved)
-            io.writeText(FILE_WORKOUTS, gson.toJson(workouts))
+            val saved = log.copy(id = id, dayOfWeek = log.dayOfWeek.ifBlank { dayOfWeekForDate(log.date) })
+            workoutLogs[saved.date] = saved
+            persistWorkoutLogFile(saved)
             persistProgress()
-            workoutsFlow.value = workouts.sortedByDescending { it.date }
+            emitWorkoutFlows()
             id
+        }
+
+        override suspend fun getAllWorkoutLogs(): List<WorkoutLogEntity> = withWriteLock {
+            workoutLogs.values.sortedByDescending { it.date }
+        }
+
+        override suspend fun deleteWorkoutLog(date: String) = withWriteLock {
+            workoutLogs.remove(date)
+            io.delete("${JsonFileIO.WORKOUTS_LOGS_DIR}/$date.json")
+            emitWorkoutFlows()
+        }
+
+        override fun observeWorkoutRoutine(): Flow<WorkoutRoutineEntity> = workoutRoutineFlow
+
+        override suspend fun getWorkoutRoutine(): WorkoutRoutineEntity = withWriteLock {
+            workoutRoutine
+        }
+
+        override suspend fun upsertWorkoutRoutine(routine: WorkoutRoutineEntity) = withWriteLock {
+            workoutRoutine = routine
+            persistWorkoutRoutine()
+            workoutRoutineFlow.value = workoutRoutine
+        }
+
+        override fun observeDietLog(date: String): Flow<DietLogEntity?> =
+            dietLogFlows.getOrPut(date) { MutableStateFlow(dietLogs[date]) }
+
+        override fun observeDietLogs(): Flow<List<DietLogEntity>> = dietLogsFlow
+
+        override suspend fun getDietLog(date: String): DietLogEntity? = withWriteLock {
+            dietLogs[date]
+        }
+
+        override suspend fun upsertDietLog(log: DietLogEntity) = withWriteLock {
+            dietLogs[log.date] = log
+            persistDietLogFile(log)
+            emitDietFlows()
+        }
+
+        override suspend fun deleteDietLog(date: String) = withWriteLock {
+            dietLogs.remove(date)
+            io.delete("${JsonFileIO.DIET_LOGS_DIR}/$date.json")
+            emitDietFlows()
         }
 
         override fun observeNutrition(date: String): Flow<NutritionLogEntity?> =
             nutritionFlows.getOrPut(date) {
-                MutableStateFlow(nutrition.firstOrNull { it.date == date })
+                MutableStateFlow(nutritionFromDiet(date))
             }
 
         override suspend fun upsertNutrition(log: NutritionLogEntity) = withWriteLock {
-            val idx = nutrition.indexOfFirst { it.date == log.date }
-            if (idx >= 0) nutrition[idx] = log else nutrition.add(log)
-            io.writeText(FILE_NUTRITION, gson.toJson(nutrition))
-            nutritionFlows.getOrPut(log.date) { MutableStateFlow(log) }.value = log
+            val foodId = nextId({ it.dietFood }) { ids, next -> ids.copy(dietFood = next) }
+            val mealId = nextId({ it.dietMeal }) { ids, next -> ids.copy(dietMeal = next) }
+            persistProgress()
+            val food = FoodItemEntity(
+                id = foodId,
+                name = "Logged macros",
+                calories = log.calories,
+                protein = log.protein,
+                carbs = log.carbs,
+                fat = log.fat,
+            )
+            val meal = MealEntity(id = mealId, name = "Logged macros", foods = listOf(food))
+            val diet = DietLogEntity(
+                date = log.date,
+                meals = listOf(meal),
+                dailyTotals = NutritionTotalsEntity(log.calories, log.protein, log.carbs, log.fat),
+            )
+            dietLogs[log.date] = diet
+            persistDietLogFile(diet)
+            emitDietFlows()
         }
 
         override fun observeFocus(date: String): Flow<List<FocusSessionEntity>> =
@@ -903,23 +1087,6 @@ class JsonDatabase(private val rootDir: File) {
             }
         }
 
-        override suspend fun insertWorkoutExercise(exercise: WorkoutExerciseEntity): Long = withWriteLock {
-            val id = if (exercise.id == 0L) {
-                nextId({ it.workoutExercise }) { ids, next -> ids.copy(workoutExercise = next) }
-            } else {
-                exercise.id
-            }
-            val saved = exercise.copy(id = id)
-            workoutExercises.add(saved)
-            io.writeText(FILE_WORKOUT_EXERCISES, gson.toJson(workoutExercises))
-            persistProgress()
-            id
-        }
-
-        override suspend fun getWorkoutExercises(workoutId: Long): List<WorkoutExerciseEntity> = withWriteLock {
-            workoutExercises.filter { it.workoutId == workoutId }
-        }
-
         override suspend fun upsertCareerNode(node: CareerNodeEntity): Long = withWriteLock {
             val withId = if (node.id == 0L) {
                 val id = nextId({ it.careerNode }) { ids, next -> ids.copy(careerNode = next) }
@@ -989,11 +1156,11 @@ class JsonDatabase(private val rootDir: File) {
         }
 
         override suspend fun countWorkoutsInRange(startDate: String, endDate: String): Int = withWriteLock {
-            workouts.count { it.date >= startDate && it.date <= endDate }
+            workoutLogs.values.count { it.date >= startDate && it.date <= endDate }
         }
 
         override suspend fun countWorkoutDaysInRange(startDate: String, endDate: String): Int = withWriteLock {
-            workouts.filter { it.date >= startDate && it.date <= endDate }.map { it.date }.distinct().size
+            workoutLogs.values.filter { it.date >= startDate && it.date <= endDate }.map { it.date }.distinct().size
         }
 
         override suspend fun countDsaSolvedInRange(startMs: Long, endMs: Long): Int = withWriteLock {
@@ -1049,7 +1216,7 @@ class JsonDatabase(private val rootDir: File) {
         }
 
         override suspend fun getNutrition(date: String): NutritionLogEntity? = withWriteLock {
-            nutrition.firstOrNull { it.date == date }
+            nutritionFromDiet(date)
         }
 
         override fun observeBossQuests(bossId: Long): Flow<List<BossQuestEntity>> =
