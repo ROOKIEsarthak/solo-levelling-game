@@ -68,3 +68,13 @@ fun selectedPrimaryRoute(route: String?): String = when (route) {
     -> AppRoute.More.route
     else -> route.orEmpty()
 }
+
+/**
+ * Whether primary-tab navigation should restore a saved back stack for [route].
+ * Home and More are hubs: always open the root screen, never a saved child
+ * (e.g. Character under Home, Settings under More).
+ */
+fun shouldRestorePrimaryTabState(route: String): Boolean = when (route) {
+    AppRoute.Dashboard.route, AppRoute.More.route -> false
+    else -> true
+}

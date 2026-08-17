@@ -1,6 +1,7 @@
 package com.example.solo_levelling.ui.components
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -110,7 +111,7 @@ class SovereignHelpersTest {
 
     @Test
     fun p_formatAttributeRewards() {
-        assertEquals("+30 INT  +10 DISC", formatAttributeRewards("""{"INT":30,"DISC":10}"""))
+        assertEquals("+30 Intelligence  +10 Discipline", formatAttributeRewards("""{"INT":30,"DISC":10}"""))
     }
 
     @Test
@@ -129,18 +130,26 @@ class SovereignHelpersTest {
     }
 
     @Test
+    fun p_humanizeSuggestionTitle_replacesAttributeCodes() {
+        assertEquals(
+            "Invest in Focus this week",
+            humanizeSuggestionTitle("Invest in FOC this week"),
+        )
+    }
+
+    @Test
     fun p_greetingForHour() {
-        assertEquals("GOOD MORNING", greetingForHour(8))
-        assertEquals("GOOD AFTERNOON", greetingForHour(14))
-        assertEquals("GOOD EVENING", greetingForHour(19))
-        assertEquals("GOOD NIGHT", greetingForHour(2))
+        assertEquals("Good morning", greetingForHour(8))
+        assertEquals("Good afternoon", greetingForHour(14))
+        assertEquals("Good evening", greetingForHour(19))
+        assertEquals("Welcome back", greetingForHour(2))
     }
 
     @Test
     fun p_streakSupportCopy() {
         assertTrue(streakSupportCopy(0).contains("one day"))
         assertTrue(streakSupportCopy(3).contains("consistency"))
-        assertTrue(streakSupportCopy(12).contains("rhythm"))
+        assertTrue(streakSupportCopy(12).contains("routine"))
     }
 
     @Test
@@ -151,5 +160,168 @@ class SovereignHelpersTest {
     @Test
     fun e_xpProgressLabelGuards() {
         assertEquals("0 / 1 XP", xpProgressLabel(-5, 0))
+    }
+
+    @Test
+    fun p_attributeDisplayName_allSevenCodes() {
+        assertEquals("Strength", attributeDisplayName("STR"))
+        assertEquals("Endurance", attributeDisplayName("END"))
+        assertEquals("Intelligence", attributeDisplayName("INT"))
+        assertEquals("Vitality", attributeDisplayName("VIT"))
+        assertEquals("Discipline", attributeDisplayName("DISC"))
+        assertEquals("Focus", attributeDisplayName("FOC"))
+        assertEquals("Wisdom", attributeDisplayName("WIS"))
+    }
+
+    @Test
+    fun e_attributePresentation_unknownCodeFallsBack() {
+        val presentation = attributePresentation("xyz")
+        assertEquals("XYZ", presentation.code)
+        assertEquals("XYZ", presentation.displayName)
+        assertEquals("Growth", presentation.cues)
+        assertTrue(presentation.meaning.isNotBlank())
+    }
+
+    @Test
+    fun p_attributePresentation_caseInsensitive() {
+        assertEquals("Intelligence", attributePresentation("int").displayName)
+        assertEquals("Focus", attributePresentation("foc").displayName)
+    }
+
+    @Test
+    fun p_attributePresentation_cuesAreCompactForCharacterDensity() {
+        val str = attributePresentation("STR")
+        assertEquals("Physical capability · power · effort", str.cues)
+        assertTrue(
+            "cues should be shorter than full meaning for compact AttributeRow",
+            str.cues.length < str.meaning.length,
+        )
+        assertFalse(str.cues.contains(','))
+    }
+
+    @Test
+    fun n_attributePresentation_cuesDistinctFromMeaning() {
+        val end = attributePresentation("END")
+        assertTrue(end.cues.isNotBlank())
+        assertTrue(end.meaning.isNotBlank())
+        assertFalse(
+            "Character compact path must not reuse the essay meaning as cues",
+            end.cues == end.meaning,
+        )
+    }
+
+    @Test
+    fun e_attributePresentation_allKnownCodesHaveSingleLineCues() {
+        listOf("STR", "END", "INT", "VIT", "DISC", "FOC", "WIS").forEach { code ->
+            val cues = attributePresentation(code).cues
+            assertTrue("$code cues blank", cues.isNotBlank())
+            assertFalse("$code cues should stay single-line", cues.contains('\n'))
+        }
+    }
+
+    @Test
+    fun p_formatAttributeRewards_singleIntUsesFullName() {
+        val formatted = formatAttributeRewards("""{"INT":30}""")
+        assertTrue(formatted.contains("+30 Intelligence"))
+        assertFalse(formatted.contains("+30 INT"))
+    }
+
+    @Test
+    fun n_formatAttributeRewards_negativeAmount() {
+        assertEquals("-5 Discipline", formatAttributeRewards("""{"DISC":-5}"""))
+    }
+
+    @Test
+    fun e_formatAttributeRewards_malformedReturnsEmpty() {
+        assertEquals("", formatAttributeRewards("not-json"))
+    }
+
+    @Test
+    fun p_attributeGrowthInsight_usesFullNames() {
+        val insight = AttributeInsight(
+            strongestCode = "INT",
+            strongestValue = 80,
+            lowestCode = "FOC",
+            lowestValue = 40,
+        )
+        val copy = attributeGrowthInsight(insight)
+        assertTrue(copy.contains("Intelligence"))
+        assertTrue(copy.contains("Focus"))
+        assertFalse(copy.contains("weakest", ignoreCase = true))
+        assertFalse(copy.contains("failing", ignoreCase = true))
+        assertFalse(copy.contains("bad", ignoreCase = true))
+    }
+
+    @Test
+    fun e_attributeGrowthInsight_emptyWhenNoLowest() {
+        assertEquals("", attributeGrowthInsight(AttributeInsight(null, 0, null, 0)))
+    }
+
+    @Test
+    fun e_attributeGrowthInsight_singleAttributeOnly() {
+        val insight = AttributeInsight(
+            strongestCode = "STR",
+            strongestValue = 50,
+            lowestCode = "STR",
+            lowestValue = 50,
+        )
+        assertEquals("Strength has more room for investment.", attributeGrowthInsight(insight))
+    }
+
+    @Test
+    fun p_areaToInvestCopy_fullName() {
+        assertEquals("Intelligence — an area to invest in.", areaToInvestCopy("INT"))
+    }
+
+    @Test
+    fun n_areaToInvestCopy_nullOrBlank() {
+        assertEquals("", areaToInvestCopy(null))
+        assertEquals("", areaToInvestCopy(""))
+        assertEquals("", areaToInvestCopy("   "))
+    }
+
+
+    @Test
+    fun p_humanizeNextActionDetail_calmCareerSignal() {
+        val detail = humanizeNextActionDetail("DSA is your weakest career signal at 42%.")
+        assertFalse(detail.contains("weakest", ignoreCase = true))
+        assertTrue(detail.contains("42%"))
+        assertTrue(detail.contains("focus next"))
+    }
+
+    @Test
+    fun p_humanizeNextActionDetail_attributeCodes() {
+        val detail = humanizeNextActionDetail("Boost INT today.")
+        assertTrue(detail.contains("Intelligence"))
+        assertFalse(detail.matches(Regex(".*\\bINT\\b.*")))
+    }
+
+    @Test
+    fun p_humanizeSuggestionTitle_boostIntUsesFullName() {
+        val title = humanizeSuggestionTitle("Boost INT")
+        assertTrue(title.contains("Intelligence"))
+        assertFalse(title.matches(Regex(".*\\bINT\\b.*")))
+    }
+
+    @Test
+    fun p_displayLabel_bracketedVsPlain() {
+        assertEquals("Today", displayLabel("Today", bracketed = false))
+        assertEquals("[ Today ]", displayLabel("Today", bracketed = true))
+    }
+
+    @Test
+    fun e_displayLabel_trimsWhitespace() {
+        assertEquals("Quests", displayLabel("  Quests  "))
+    }
+
+    @Test
+    fun p_xpToNextLabel_remainingXp() {
+        assertEquals("550 XP to the next level", xpToNextLabel(2450, 3000))
+    }
+
+    @Test
+    fun e_xpToNextLabel_readyWhenRemainingZero() {
+        assertEquals("Ready for the next level", xpToNextLabel(3000, 3000))
+        assertEquals("Ready for the next level", xpToNextLabel(3500, 3000))
     }
 }

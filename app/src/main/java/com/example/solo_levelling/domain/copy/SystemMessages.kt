@@ -15,6 +15,22 @@ object SystemMessages {
         Milestone,
     }
 
+    enum class MotivationContext {
+        DailyStart,
+        FirstQuest,
+        QuestCompleted,
+        DifficultQuestCompleted,
+        StreakMilestone,
+        StreakBroken,
+        Recovery,
+        LevelMilestone,
+        RankMilestone,
+        AttributeImproved,
+        WeeklyReview,
+        NoQuests,
+        ReturningUser,
+    }
+
     enum class Intensity {
         Small,
         Medium,
@@ -26,72 +42,142 @@ object SystemMessages {
 
     private val levelUpByIntensity = mapOf(
         Intensity.Small to listOf(
-            "BETTER THAN BEFORE.\nKEEP MOVING.",
-            "KEEP BUILDING.",
-            "ONE LEVEL FURTHER.",
+            "Another step forward.",
+            "Small gains compound.",
+            "You are not where you started.",
         ),
         Intensity.Medium to listOf(
-            "THE WORK IS SHOWING.\nDON'T STOP NOW.",
-            "CONSISTENCY IS WORKING.",
-            "YOU'RE GETTING STRONGER.",
+            "The work is showing.",
+            "Consistency is working.",
+            "You followed through again.",
         ),
         Intensity.Large to listOf(
-            "YOU DIDN'T CHANGE OVERNIGHT.\nYOU CHANGED EVERY DAY.",
-            "YOU DIDN'T STOP.\nKEEP THE MOMENTUM.",
-            "DISCIPLINE IS STARTING TO SHOW.",
+            "You didn't change overnight. You changed every day.",
+            "Discipline is starting to show.",
+            "Progress does not need to be loud to be real.",
         ),
         Intensity.Major to listOf(
-            "YOU ARE NOT WHERE YOU STARTED.\nAND YOU'RE NOT DONE.",
-            "YOU DIDN'T GET LUCKIER.\nYOU GOT BETTER.",
-            "THIS IS WHAT CONSISTENCY LOOKS LIKE.",
+            "You are not where you started. And you are not done.",
+            "You didn't get luckier. You got better.",
+            "This is what consistency looks like.",
         ),
         Intensity.Exceptional to listOf(
-            "THE OLD VERSION OF YOU\nWOULDN'T RECOGNIZE THIS ONE.",
-            "THE OLD VERSION OF YOU\nWOULDN'T HAVE MADE IT THIS FAR.",
-            "YOU BUILT THIS.",
+            "The old version of you wouldn't recognize this one.",
+            "You built this through ordinary days.",
+            "The work compounds.",
         ),
         Intensity.Baseline to listOf(
-            "BUILDING YOUR BASELINE.\nKEEP SHOWING UP.",
-            "KEEP BUILDING.\nTHE SCORE COMES WITH TIME.",
+            "Keep showing up. The score comes with time.",
+            "Building your baseline.",
+            "Start small. Start now.",
         ),
     )
 
     private val messages = mapOf(
         Category.Consistency to listOf(
-            "YOU SHOWED UP. AGAIN.",
-            "THE NUMBERS DON'T LIE.\nYOU'RE IMPROVING.",
-            "YOU'RE BETTER THAN YOU WERE.\nKEEP GOING.",
+            "You showed up again.",
+            "You are becoming more consistent.",
+            "You followed through.",
         ),
         Category.Workout to listOf(
-            "YOU SHOWED UP.",
-            "THE SESSION COUNTS.",
-            "STRENGTH COMPOUNDS.",
+            "You showed up for your body.",
+            "The session counts.",
+            "Strength compounds.",
         ),
         Category.Diet to listOf(
-            "CONSISTENCY BUILDS RESULTS.",
-            "FUEL LOGGED.",
-            "NUTRITION IS PART OF THE SYSTEM.",
+            "Consistency builds results.",
+            "Fuel logged.",
+            "Small choices add up.",
         ),
         Category.Streak to listOf(
-            "YOU KEPT SHOWING UP.",
-            "DON'T BREAK THE MOMENTUM.",
-            "CONSISTENCY WON.",
+            "Consistency is becoming a habit.",
+            "You kept the rhythm.",
+            "Ordinary days build lasting change.",
         ),
         Category.Recovery to listOf(
-            "THE STREAK ENDED.\nTHE JOURNEY DIDN'T.",
-            "RESET.\nREBUILD.\nCONTINUE.",
-            "NOW GET BACK UP.",
-            "START REBUILDING.",
+            "One break does not erase the journey.",
+            "Reset. Reflect. Continue.",
+            "You are not starting over. You are starting again with experience.",
+            "Begin again.",
         ),
         Category.PersonalBest to listOf(
-            "YOU JUST BEAT\nYOUR OLD RECORD.",
-            "NEW PERSONAL BEST.\nCOMPETE WITH YOURSELF.",
-            "THE BAR MOVED.\nYOU MOVED IT.",
+            "You just beat your old record.",
+            "Compete with yourself.",
+            "The bar moved. You moved it.",
         ),
         Category.Milestone to listOf(
-            "THIS IS NO LONGER\nJUST MOTIVATION.\nTHIS IS DISCIPLINE.",
-            "YOU BUILT A HABIT\nWHEN NOBODY WAS WATCHING.",
-            "TWO WEEKS OF CONSISTENCY.\nDON'T BREAK THE MOMENTUM.",
+            "Consistency is becoming discipline.",
+            "You built a habit when nobody was watching.",
+            "Progress becomes visible when you look back.",
+        ),
+    )
+
+    private val contextPools = mapOf(
+        MotivationContext.DailyStart to listOf(
+            "You don't have to finish everything today. Just move forward.",
+            "Take the next step.",
+            "Discipline becomes easier when you stop waiting to feel motivated.",
+        ),
+        MotivationContext.FirstQuest to listOf(
+            "Start small. Start now.",
+            "Every journey begins with one step.",
+            "You showed up. That matters.",
+        ),
+        MotivationContext.QuestCompleted to listOf(
+            "Another step forward.",
+            "You followed through.",
+            "You finished what you started.",
+            "One completed task is still one step closer.",
+        ),
+        MotivationContext.DifficultQuestCompleted to listOf(
+            "The difficult work is often the work that changes us.",
+            "You chose to follow through.",
+            "You made time for what matters.",
+        ),
+        MotivationContext.StreakMilestone to listOf(
+            "Consistency is becoming a habit.",
+            "Consistency is built one decision at a time.",
+            "The work you do today becomes the person you are tomorrow.",
+        ),
+        MotivationContext.StreakBroken to listOf(
+            "One difficult day does not define your journey.",
+            "One break does not erase the journey.",
+            "Some days are for finding your footing.",
+        ),
+        MotivationContext.Recovery to listOf(
+            "Why do we fall? So we can learn to rise again.",
+            "Begin again.",
+            "You are not starting over. You are starting again with experience.",
+        ),
+        MotivationContext.LevelMilestone to listOf(
+            "You are not where you started.",
+            "Progress recorded.",
+            "A better version of you is built in ordinary moments.",
+        ),
+        MotivationContext.RankMilestone to listOf(
+            "Growth becomes visible when effort becomes consistent.",
+            "You are becoming more consistent.",
+            "The work compounds.",
+        ),
+        MotivationContext.AttributeImproved to listOf(
+            "Small gains compound.",
+            "Where you invest your time shapes who you become.",
+            "Showing improvement.",
+        ),
+        MotivationContext.WeeklyReview to listOf(
+            "Progress becomes visible when you look back.",
+            "Reflect. Then continue.",
+            "The goal isn't perfection. The goal is progress.",
+        ),
+        MotivationContext.NoQuests to listOf(
+            "Your next step will appear here.",
+            "Every journey begins with one step.",
+            "When you are ready, begin.",
+        ),
+        MotivationContext.ReturningUser to listOf(
+            "Welcome back.",
+            "Continue where you left off.",
+            "Your future self benefits from what you choose today.",
         ),
     )
 
@@ -112,30 +198,40 @@ object SystemMessages {
             else -> messages[category].orEmpty()
         }
         if (pool.isEmpty()) return ""
-        val index = kotlin.math.abs(seed) % pool.size
-        return pool[index]
+        return pool[kotlin.math.abs(seed) % pool.size]
     }
 
     fun pickLevelUp(intensity: Intensity, seed: Int): String {
         val pool = levelUpByIntensity[intensity].orEmpty()
-        if (pool.isEmpty()) return "KEEP BUILDING."
+        if (pool.isEmpty()) return "Keep building."
         return pool[kotlin.math.abs(seed) % pool.size]
     }
 
-    fun missionComplete(xp: Int): String = "✓ MISSION COMPLETE\n+$xp XP"
+    fun forContext(context: MotivationContext, seed: Int): String {
+        val pool = contextPools[context].orEmpty()
+        if (pool.isEmpty()) return ""
+        return pool[kotlin.math.abs(seed) % pool.size]
+    }
+
+    fun questCompletedFeedback(xp: Int, seed: Int = xp, difficult: Boolean = false): String {
+        val ctx = if (difficult) MotivationContext.DifficultQuestCompleted else MotivationContext.QuestCompleted
+        return "+$xp XP\n${forContext(ctx, seed)}"
+    }
+
+    fun missionComplete(xp: Int): String = questCompletedFeedback(xp)
 
     fun workoutComplete(xp: Int): String =
-        "✓ WORKOUT COMPLETE\n+$xp XP\n${pick(Category.Workout, xp)}"
+        "+$xp XP\n${pick(Category.Workout, xp)}"
 
     fun nutritionLogged(xp: Int): String =
-        "✓ NUTRITION LOGGED\n+$xp XP\n${pick(Category.Diet, xp)}"
+        "+$xp XP\n${pick(Category.Diet, xp)}"
 
     fun streakMilestone(days: Int): String? = when (days) {
-        7 -> "7 DAYS.\nYOU KEPT SHOWING UP."
-        14 -> "14 DAYS.\nTWO WEEKS OF CONSISTENCY.\nDON'T BREAK THE MOMENTUM."
-        30 -> "30 DAYS.\nTHIS IS NO LONGER\nJUST MOTIVATION.\nTHIS IS DISCIPLINE."
-        60 -> "60 DAYS.\nYOU BUILT A HABIT\nWHEN NOBODY WAS WATCHING."
-        100 -> "100 DAYS.\nCONSISTENCY WON."
+        7 -> "7 days.\n${forContext(MotivationContext.StreakMilestone, 7)}"
+        14 -> "14 days.\n${forContext(MotivationContext.StreakMilestone, 14)}"
+        30 -> "30 days.\n${forContext(MotivationContext.StreakMilestone, 30)}"
+        60 -> "60 days.\n${forContext(MotivationContext.StreakMilestone, 60)}"
+        100 -> "100 days.\n${forContext(MotivationContext.StreakMilestone, 100)}"
         else -> null
     }
 

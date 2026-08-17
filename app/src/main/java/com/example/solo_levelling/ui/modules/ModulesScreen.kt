@@ -298,7 +298,7 @@ fun ModulesScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     SystemSectionHeader(tag = "JOURNAL", accent = SystemSecondary)
                     BracketLabel(
-                        text = if (journal.isNotBlank()) "ENTRY READY" else "ENTRY REQUIRED",
+                        text = if (journal.isNotBlank()) "Entry ready" else "Entry required",
                         color = if (journal.isNotBlank()) SystemTertiary else colors.onSurfaceVariant,
                     )
                     OutlinedTextField(
@@ -367,7 +367,7 @@ fun ModulesScreen(
                         )
                         if (activeBosses.isEmpty()) {
                             SystemIdleEmpty(
-                                title = "NO ACTIVE BOSS",
+                                title = "No active boss",
                                 subtitle = "Create a boss quest to track a major objective.",
                             )
                         } else {
@@ -499,7 +499,7 @@ private fun SkillsSection(skills: List<com.example.solo_levelling.data.db.entity
 
     if (skills.isEmpty()) {
         SystemIdleEmpty(
-            title = "SKILLS IDLE",
+            title = "Skills idle",
             subtitle = "Skills unlock from DSA and career progress.",
         )
         return
@@ -539,7 +539,7 @@ private fun CareerSection(nodes: List<CareerNodeEntity>, onAdvance: (Long) -> Un
             SystemSectionHeader(tag = "CAREER", accent = SystemPrimary)
             if (nodes.isEmpty()) {
                 SystemIdleEmpty(
-                    title = "CAREER IDLE",
+                    title = "Career idle",
                     subtitle = "Career nodes will appear as your path is configured.",
                 )
             } else {
@@ -603,7 +603,7 @@ private fun DsaSection(
             SystemActionButton(label = "ADD PROBLEM", onClick = onAdd, modifier = Modifier.fillMaxWidth())
             if (dsa.isEmpty()) {
                 SystemIdleEmpty(
-                    title = "NO PROBLEMS",
+                    title = "No problems",
                     subtitle = "Add your first DSA problem below.",
                 )
             }

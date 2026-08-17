@@ -22,6 +22,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -128,9 +130,9 @@ fun FitnessScreen(
         ) {
             SystemSectionHeader(
                 tag = when (tab) {
-                    FitnessTab.Workout -> "TODAY'S TRAINING"
-                    FitnessTab.Diet -> "TODAY'S FUEL"
-                    FitnessTab.Both -> "FITNESS SYSTEM"
+                    FitnessTab.Workout -> "Today's training"
+                    FitnessTab.Diet -> "Today's fuel"
+                    FitnessTab.Both -> "Fitness"
                 },
                 accent = SystemPrimary,
             )
@@ -220,7 +222,7 @@ fun FitnessScreen(
                             )
                             onMessage("Same workout started")
                         } else {
-                            onMessage("NO PREVIOUS WORKOUT.\nStart your first session.")
+                            onMessage("No previous workout.\nStart your first session.")
                         }
                     }
                 },
@@ -282,7 +284,7 @@ fun FitnessScreen(
                             }
                             onMessage("Meal repeated")
                         } else {
-                            onMessage("NO MEALS LOGGED.\nStart recording today's nutrition.")
+                            onMessage("No meals logged.\nStart recording today's nutrition.")
                         }
                     }
                 },
@@ -296,15 +298,29 @@ fun FitnessScreen(
 
 @Composable
 private fun BiometricPanel(label: String, value: String, modifier: Modifier = Modifier) {
-    GlassSurface(modifier = modifier, level = GlassLevel.Level1, cornerRadius = 8.dp) {
+    GlassSurface(
+        modifier = modifier,
+        level = GlassLevel.Level1,
+        cornerRadius = 8.dp,
+        contentPadding = Spacing.xs,
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            BracketLabel(text = label, color = SystemSecondary)
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = SystemSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             Text(
                 value,
                 fontFamily = JetBrainsMono,
                 fontWeight = FontWeight.Bold,
                 color = SystemPrimary,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                softWrap = true,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -442,8 +458,6 @@ private fun FitnessSection(
 
     GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SystemSectionHeader(tag = "TODAY'S TRAINING", accent = SystemPrimary)
-
             GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level2, borderAlpha = 0.35f) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (todaySummary == null) {
@@ -471,7 +485,7 @@ private fun FitnessSection(
                         Text("Diet tip: $it", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     }
                     SystemActionButton(
-                        label = if (splitLocked) "SPLIT LOCKED — USE START WORKOUT" else "START SAME WORKOUT",
+                        label = if (splitLocked) "Split locked — use Start workout" else "START SAME WORKOUT",
                         onClick = onRepeatLast,
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !splitLocked,
@@ -480,26 +494,38 @@ private fun FitnessSection(
                 }
             }
 
-            if (heightCm.isNotBlank() || weightKg.isNotBlank() || bmiEstimate.isNotBlank() || fitnessGoal.isNotBlank()) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    if (heightCm.isNotBlank()) {
-                        BiometricPanel(label = "HEIGHT", value = "${heightCm}cm", modifier = Modifier.weight(1f))
-                    }
-                    if (weightKg.isNotBlank()) {
-                        BiometricPanel(label = "WEIGHT", value = "${weightKg}kg", modifier = Modifier.weight(1f))
-                    }
-                    if (bmiEstimate.isNotBlank()) {
-                        BiometricPanel(label = "BMI", value = bmiEstimate, modifier = Modifier.weight(1f))
-                    }
-                    if (fitnessGoal.isNotBlank()) {
-                        BiometricPanel(
-                            label = "GOAL",
-                            value = fitnessGoal.replace('_', ' '),
-                            modifier = Modifier.weight(1f),
-                        )
+            val biometricPanels = buildList {
+                if (heightCm.isNotBlank()) {
+                    add("Height" to formatBiometricMeasure(heightCm, "cm"))
+                }
+                if (weightKg.isNotBlank()) {
+                    add("Weight" to formatBiometricMeasure(weightKg, "kg"))
+                }
+                if (bmiEstimate.isNotBlank()) {
+                    add("BMI" to bmiEstimate)
+                }
+                if (fitnessGoal.isNotBlank()) {
+                    add("Goal" to formatFitnessGoalDisplay(fitnessGoal))
+                }
+            }
+            if (biometricPanels.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    biometricPanels.chunked(2).forEach { row ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            row.forEach { (label, value) ->
+                                BiometricPanel(
+                                    label = label,
+                                    value = value,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            if (row.size == 1) {
+                                Spacer(Modifier.weight(1f))
+                            }
+                        }
                     }
                 }
             }
@@ -600,18 +626,34 @@ private fun FitnessSection(
                         }
                     }
                     if (splitLocked) {
-                        Text(
-                            if (dayPlan.enabled) dayPlan.name.ifBlank { "Workout" } else "Rest",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        if (!dayPlan.enabled) {
-                            Text("Rest day", color = colors.onSurfaceVariant)
-                        }
-                        dayPlan.exercises.forEach { ex ->
-                            Text(
-                                "${ex.name} · ${ex.targetMuscle} · ${ex.sets}×${ex.repRange.min}-${ex.repRange.max}",
-                            )
+                        GlassSurface(
+                            modifier = Modifier.fillMaxWidth(),
+                            level = GlassLevel.Level2,
+                            borderAlpha = 0.35f,
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                                Text(
+                                    if (dayPlan.enabled) dayPlan.name.ifBlank { "Workout" } else "Rest",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                HorizontalDivider(color = colors.primary.copy(alpha = 0.25f))
+                                if (!dayPlan.enabled) {
+                                    Text(
+                                        "Rest day",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = colors.onSurfaceVariant,
+                                    )
+                                }
+                                dayPlan.exercises.forEach { ex ->
+                                    Text(
+                                        "${ex.name} · ${ex.targetMuscle} · ${ex.sets}×${ex.repRange.min}-${ex.repRange.max}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = colors.onSurfaceVariant,
+                                        modifier = Modifier.padding(start = Spacing.xs),
+                                    )
+                                }
+                            }
                         }
                     } else {
                         OutlinedTextField(
@@ -635,14 +677,22 @@ private fun FitnessSection(
                         if (!dayPlan.enabled) {
                             Text("Currently marked rest — Save day or Add exercise to enable.")
                         }
-                        dayPlan.exercises.forEach { ex ->
-                            Text(
-                                "${ex.name} · ${ex.targetMuscle} · ${ex.sets}×${ex.repRange.min}-${ex.repRange.max}",
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                SystemActionButton(label = "UP", onClick = { onReorderPlanned(dayKey, ex.id, true) }, primary = false)
-                                SystemActionButton(label = "DOWN", onClick = { onReorderPlanned(dayKey, ex.id, false) }, primary = false)
-                                SystemActionButton(label = "REMOVE", onClick = { onRemovePlanned(dayKey, ex.id) }, primary = false)
+                        if (dayPlan.exercises.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                                HorizontalDivider(color = colors.primary.copy(alpha = 0.25f))
+                                dayPlan.exercises.forEach { ex ->
+                                    Text(
+                                        "${ex.name} · ${ex.targetMuscle} · ${ex.sets}×${ex.repRange.min}-${ex.repRange.max}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = colors.onSurfaceVariant,
+                                        modifier = Modifier.padding(start = Spacing.xs),
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        SystemActionButton(label = "UP", onClick = { onReorderPlanned(dayKey, ex.id, true) }, primary = false)
+                                        SystemActionButton(label = "DOWN", onClick = { onReorderPlanned(dayKey, ex.id, false) }, primary = false)
+                                        SystemActionButton(label = "REMOVE", onClick = { onRemovePlanned(dayKey, ex.id) }, primary = false)
+                                    }
+                                }
                             }
                         }
                         Text("Add exercise", style = MaterialTheme.typography.titleSmall)
@@ -881,7 +931,7 @@ private fun FitnessSection(
                         SystemActionButton(label = "DELETE", onClick = onDeleteLog, primary = false, modifier = Modifier.fillMaxWidth())
                     } else {
                         SystemIdleEmpty(
-                            title = "SYSTEM READY",
+                            title = "System ready",
                             subtitle = "No workout has been logged yet.\nYour first session starts here.",
                             actionLabel = "START WORKOUT",
                             onAction = onStartLog,
@@ -1003,8 +1053,6 @@ private fun DietSection(
 
     GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SystemSectionHeader(tag = "TODAY'S FUEL", accent = SystemPrimary)
-
             if (todayTotals != null) {
                 GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level2, borderAlpha = 0.35f) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1036,7 +1084,7 @@ private fun DietSection(
                 }
             } else {
                 SystemIdleEmpty(
-                    title = "NO MEALS LOGGED",
+                    title = "No meals logged",
                     subtitle = "Start recording today's nutrition.",
                     actionLabel = "ADD FIRST MEAL",
                     onAction = { tab = "Log Food" },
@@ -1477,3 +1525,16 @@ private fun MacroProgressRow(label: String, current: Int, target: Int, unit: Str
         CyberProgressBar(progress = progress, height = 6.dp)
     }
 }
+
+/** Formats a biometric measure with a spaced unit for display. */
+internal fun formatBiometricMeasure(value: String, unit: String): String {
+    val v = value.trim()
+    val u = unit.trim()
+    if (v.isEmpty()) return ""
+    if (u.isEmpty()) return v
+    return "$v $u"
+}
+
+/** Formats a fitness goal id for display (underscores → spaces). */
+internal fun formatFitnessGoalDisplay(goal: String): String =
+    goal.trim().replace('_', ' ')

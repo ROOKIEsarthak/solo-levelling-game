@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -81,6 +82,7 @@ import com.example.solo_levelling.ui.navigation.AppRoute
 import com.example.solo_levelling.ui.navigation.buildMainTabs
 import com.example.solo_levelling.ui.navigation.redirectForDisabledModuleRoute
 import com.example.solo_levelling.ui.navigation.selectedPrimaryRoute
+import com.example.solo_levelling.ui.navigation.shouldRestorePrimaryTabState
 import com.example.solo_levelling.ui.navigation.showBottomBarForRoute
 import com.example.solo_levelling.ui.navigation.sovereignTabLabel
 import com.example.solo_levelling.ui.onboarding.OnboardingScreen
@@ -168,7 +170,7 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                     SystemMessages.streakMilestone(event.current)?.let { showMessage(it) }
                     if (lastBest >= 0 && event.current > 0 && event.current == event.best && event.best > lastBest) {
                         showMessage(
-                            "NEW PERSONAL BEST\n${event.best} DAY STREAK\n" +
+                            "New personal best\n${event.best} day streak\n" +
                                 SystemMessages.pick(SystemMessages.Category.PersonalBest, event.best),
                         )
                     }
@@ -231,15 +233,7 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                         val selected = selectedTab == tab.route.route
                         NavigationBarItem(
                             selected = selected,
-                            onClick = {
-                                navController.navigate(tab.route.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
+                            onClick = { navigatePrimaryTab(navController, tab.route.route) },
                             icon = { Icon(tab.icon, contentDescription = tab.label) },
                             label = {
                                 Text(
@@ -285,15 +279,7 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                         val selected = selectedTab == tab.route.route
                         NavigationRailItem(
                             selected = selected,
-                            onClick = {
-                                navController.navigate(tab.route.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
+                            onClick = { navigatePrimaryTab(navController, tab.route.route) },
                             icon = { Icon(tab.icon, contentDescription = tab.label) },
                             label = {
                                 Text(
@@ -447,6 +433,17 @@ fun SoloLevellingAppRoot(container: AppContainer) {
 }
 
 private data class TabItem(val route: AppRoute, val label: String, val icon: ImageVector)
+
+/** Primary tab switch: Home/More never restore a prior child stack. */
+private fun navigatePrimaryTab(navController: NavController, route: String) {
+    navController.navigate(route) {
+        popUpTo(navController.graph.findStartDestination().id) {
+            saveState = true
+        }
+        launchSingleTop = true
+        restoreState = shouldRestorePrimaryTabState(route)
+    }
+}
 
 private fun buildTabItems(modules: EnabledModules): List<TabItem> =
     buildMainTabs(modules).map { route ->

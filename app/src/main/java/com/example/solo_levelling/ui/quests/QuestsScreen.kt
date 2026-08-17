@@ -27,13 +27,16 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.solo_levelling.AppContainer
+import com.example.solo_levelling.domain.copy.SystemMessages
 import com.example.solo_levelling.domain.service.QuestCompletionService
+import com.example.solo_levelling.ui.dashboard.questCompletionUserMessage
 import com.example.solo_levelling.ui.components.BracketLabel
 import com.example.solo_levelling.ui.components.CyberProgressBar
 import com.example.solo_levelling.ui.components.EnergyFieldBackground
 import com.example.solo_levelling.ui.components.GlassLevel
 import com.example.solo_levelling.ui.components.GlassSurface
 import com.example.solo_levelling.ui.components.MissionQuestCard
+import com.example.solo_levelling.ui.components.humanizeSuggestionTitle
 import com.example.solo_levelling.ui.components.SovereignChip
 import com.example.solo_levelling.ui.components.SystemIdleEmpty
 import com.example.solo_levelling.ui.components.SystemSectionHeader
@@ -68,18 +71,18 @@ fun QuestsScreen(
                 .padding(Spacing.screen),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
-            SystemSectionHeader(tag = "MISSIONS")
+            SystemSectionHeader(tag = "Missions")
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "Directive channel · ${selectedTab.displayLabel()}",
+                    selectedTab.displayLabel(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                BracketLabel(text = "+$todayXp XP TODAY", color = SystemTertiary)
+                BracketLabel(text = "+$todayXp XP today", color = SystemTertiary)
             }
 
             Row(
@@ -99,15 +102,17 @@ fun QuestsScreen(
                 BossesTab(bossProgress)
             } else if (quests.isEmpty()) {
                 SystemIdleEmpty(
-                    title = "SYSTEM IDLE",
-                    subtitle = "No ${selectedTab.displayLabel().lowercase()} directives generated for this channel.",
+                    subtitle = SystemMessages.forContext(
+                        SystemMessages.MotivationContext.NoQuests,
+                        selectedTab.ordinal,
+                    ),
                 )
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(Spacing.xs + 2.dp)) {
                     items(quests, key = { it.id }) { q ->
                         MissionQuestCard(
                             type = q.type,
-                            title = q.title,
+                            title = humanizeSuggestionTitle(q.title),
                             baseXp = q.baseXp,
                             status = q.status,
                             rewardsJson = q.attributeRewardsJson,
@@ -119,18 +124,7 @@ fun QuestsScreen(
                                     val result = withContext(Dispatchers.IO) {
                                         container.questCompletion.complete(q.id)
                                     }
-                                    when (result) {
-                                        is QuestCompletionService.Result.Completed ->
-                                            onMessage("Quest completed · +${result.xp} XP")
-                                        QuestCompletionService.Result.AlreadyCompleted ->
-                                            onMessage("Quest already completed")
-                                        QuestCompletionService.Result.NotFound ->
-                                            onMessage("Quest not found")
-                                        QuestCompletionService.Result.InvalidStatus ->
-                                            onMessage("Quest can't be completed right now")
-                                        QuestCompletionService.Result.DailyCapReached ->
-                                            onMessage("Daily XP cap reached")
-                                    }
+                                    onMessage(questCompletionUserMessage(result))
                                 }
                             },
                             onUndo = {
@@ -139,7 +133,7 @@ fun QuestsScreen(
                                         container.questCompletion.undo(q.id)
                                     }
                                     if (ok) {
-                                        onMessage("Quest reverted to ACTIVE")
+                                        onMessage("Quest reverted to active")
                                     } else {
                                         onMessage("Couldn't undo — window may have expired")
                                     }
@@ -157,8 +151,7 @@ fun QuestsScreen(
 fun BossesTab(bossProgress: BossProgressUi?) {
     if (bossProgress == null) {
         SystemIdleEmpty(
-            title = "SYSTEM IDLE",
-            subtitle = "No active boss encounter in this sector.",
+            subtitle = "No active boss challenge right now.",
         )
         return
     }
@@ -177,11 +170,10 @@ fun BossesTab(bossProgress: BossProgressUi?) {
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(Spacing.xs + 2.dp),
         ) {
-            SystemSectionHeader(tag = "BOSS ENCOUNTER", accent = SystemError)
+            SystemSectionHeader(tag = "Boss challenge", accent = SystemError)
             Text(
-                boss.title,
+                humanizeSuggestionTitle(boss.title),
                 style = MaterialTheme.typography.titleMedium,
-                fontFamily = JetBrainsMono,
                 fontWeight = FontWeight.Bold,
             )
             Text(
@@ -205,9 +197,8 @@ fun BossesTab(bossProgress: BossProgressUi?) {
             if (bossProgress.quests.isNotEmpty()) {
                 Spacer(Modifier.height(Spacing.xxs))
                 Text(
-                    "OBJECTIVES",
+                    "Objectives",
                     style = MaterialTheme.typography.labelSmall,
-                    fontFamily = JetBrainsMono,
                     color = SystemPrimary,
                     fontWeight = FontWeight.Medium,
                 )
@@ -220,10 +211,9 @@ fun BossesTab(bossProgress: BossProgressUi?) {
                         Text(
                             bq.templateKey,
                             style = MaterialTheme.typography.bodyMedium,
-                            fontFamily = JetBrainsMono,
                         )
                         BracketLabel(
-                            text = if (bq.completed) "DONE" else "PENDING · W${bq.weight.toInt()}",
+                            text = if (bq.completed) "Done" else "Pending · W${bq.weight.toInt()}",
                             color = if (bq.completed) SystemSuccess else SystemTertiary,
                         )
                     }

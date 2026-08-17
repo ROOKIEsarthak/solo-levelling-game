@@ -59,6 +59,15 @@ class ModuleNavigationTest {
     }
 
     @Test
+    fun p_selectedPrimaryRoute_fivePrimaryTabs() {
+        assertEquals(AppRoute.Dashboard.route, selectedPrimaryRoute(AppRoute.Dashboard.route))
+        assertEquals(AppRoute.Quests.route, selectedPrimaryRoute(AppRoute.Quests.route))
+        assertEquals(AppRoute.Analytics.route, selectedPrimaryRoute(AppRoute.Analytics.route))
+        assertEquals(AppRoute.Character.route, selectedPrimaryRoute(AppRoute.Character.route))
+        assertEquals(AppRoute.More.route, selectedPrimaryRoute(AppRoute.More.route))
+    }
+
+    @Test
     fun p_selectedPrimaryRoute_progressFamily() {
         assertEquals(AppRoute.Analytics.route, selectedPrimaryRoute(AppRoute.History.route))
         assertEquals(AppRoute.Analytics.route, selectedPrimaryRoute(AppRoute.Achievements.route))
@@ -68,6 +77,32 @@ class ModuleNavigationTest {
     fun p_selectedPrimaryRoute_moreFamily() {
         assertEquals(AppRoute.More.route, selectedPrimaryRoute(AppRoute.Settings.route))
         assertEquals(AppRoute.More.route, selectedPrimaryRoute(AppRoute.Fitness.route))
+    }
+
+    @Test
+    fun n_selectedPrimaryRoute_characterIsNotHome() {
+        assertEquals(AppRoute.Character.route, selectedPrimaryRoute(AppRoute.Character.route))
+        assertFalse(selectedPrimaryRoute(AppRoute.Character.route) == AppRoute.Dashboard.route)
+        assertFalse(selectedPrimaryRoute(AppRoute.Dashboard.route) == AppRoute.Character.route)
+    }
+
+    @Test
+    fun p_shouldRestorePrimaryTabState_stickyPrimaryTabs() {
+        assertTrue(shouldRestorePrimaryTabState(AppRoute.Quests.route))
+        assertTrue(shouldRestorePrimaryTabState(AppRoute.Analytics.route))
+        assertTrue(shouldRestorePrimaryTabState(AppRoute.Character.route))
+    }
+
+    @Test
+    fun n_shouldRestorePrimaryTabState_homeAndMoreNeverRestore() {
+        assertFalse(shouldRestorePrimaryTabState(AppRoute.Dashboard.route))
+        assertFalse(shouldRestorePrimaryTabState(AppRoute.More.route))
+    }
+
+    @Test
+    fun e_shouldRestorePrimaryTabState_unknownRouteRestores() {
+        assertTrue(shouldRestorePrimaryTabState(""))
+        assertTrue(shouldRestorePrimaryTabState("settings"))
     }
 
     @Test

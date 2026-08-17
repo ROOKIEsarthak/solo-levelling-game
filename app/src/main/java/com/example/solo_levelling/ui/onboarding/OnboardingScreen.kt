@@ -198,9 +198,9 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit) {
     }
 
     val forwardLabel = when {
-        stepIndex >= steps.lastIndex -> "BEGIN"
-        stepIndex == 0 -> "CONTINUE"
-        else -> "NEXT"
+        stepIndex >= steps.lastIndex -> "Begin"
+        stepIndex == 0 -> "Continue"
+        else -> "Next"
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -219,7 +219,7 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit) {
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "WELCOME",
+                        text = "Welcome",
                         color = SystemPrimary,
                         fontFamily = JetBrainsMono,
                         fontWeight = FontWeight.Bold,

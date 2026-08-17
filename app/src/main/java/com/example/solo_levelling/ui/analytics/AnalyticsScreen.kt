@@ -1,7 +1,6 @@
 package com.example.solo_levelling.ui.analytics
 
 import android.content.Intent
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -25,7 +23,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -34,22 +31,24 @@ import com.example.solo_levelling.core.config.SystemDefaults
 import com.example.solo_levelling.data.db.entity.PlayerProfileEntity
 import com.example.solo_levelling.data.db.entity.SeasonEntity
 import com.example.solo_levelling.data.db.entity.StreakStateEntity
+import com.example.solo_levelling.domain.copy.SystemMessages
+import com.example.solo_levelling.domain.copy.SystemMessages.MotivationContext
 import com.example.solo_levelling.domain.service.BeforeVsNow
 import com.example.solo_levelling.domain.service.ImprovementSnapshot
 import com.example.solo_levelling.domain.service.WeeklyReview
-import com.example.solo_levelling.ui.components.BracketLabel
 import com.example.solo_levelling.ui.components.EnergyFieldBackground
 import com.example.solo_levelling.ui.components.GlassLevel
 import com.example.solo_levelling.ui.components.GlassSurface
 import com.example.solo_levelling.ui.components.LoadingSkeleton
 import com.example.solo_levelling.ui.components.SystemActionButton
 import com.example.solo_levelling.ui.components.SystemSectionHeader
+import com.example.solo_levelling.ui.components.areaToInvestCopy
+import com.example.solo_levelling.ui.components.humanizeSuggestionTitle
 import com.example.solo_levelling.ui.theme.JetBrainsMono
 import com.example.solo_levelling.ui.theme.Spacing
 import com.example.solo_levelling.ui.theme.SystemPrimary
 import com.example.solo_levelling.ui.theme.SystemSecondary
 import com.example.solo_levelling.ui.theme.SystemSuccess
-import com.example.solo_levelling.ui.theme.SystemSurface
 import com.example.solo_levelling.ui.theme.SystemTertiary
 import kotlinx.coroutines.launch
 
@@ -138,10 +137,15 @@ fun AnalyticsScreen(
                             )
                             r.bossProgress?.let { boss ->
                                 MetricLine(
-                                    label = "Boss · ${boss.title}",
+                                    label = "Boss · ${humanizeSuggestionTitle(boss.title)}",
                                     value = "${boss.current.toInt()} / ${boss.target.toInt()}",
                                 )
                             }
+                            Text(
+                                weeklyReviewEncouragement(r.personalScore + r.xpEarned),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.onSurfaceVariant,
+                            )
                             if (r.recommendations.isNotEmpty()) {
                                 Spacer(Modifier.height(Spacing.xxs))
                                 Text(
@@ -152,7 +156,7 @@ fun AnalyticsScreen(
                                 )
                                 r.recommendations.forEach { rec ->
                                     Text(
-                                        "· $rec",
+                                        "· ${humanizeSuggestionTitle(rec)}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = colors.onSurfaceVariant,
                                     )
@@ -293,13 +297,15 @@ private fun ScoreBlock(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(SystemSurface.copy(alpha = 0.35f))
-            .padding(Spacing.sm),
+        modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        BracketLabel(text = label.uppercase(), color = accent)
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            fontFamily = JetBrainsMono,
+            color = accent,
+        )
         Text(
             "$score/100",
             style = MaterialTheme.typography.titleLarge,
@@ -333,12 +339,8 @@ private fun MetricLine(label: String, value: String, highlight: Boolean = false)
 private fun CompareRow(label: String, before: String, now: String) {
     val colors = MaterialTheme.colorScheme
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(SystemSurface.copy(alpha = 0.3f))
-            .padding(Spacing.sm),
-        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
     ) {
         Text(
             label,
@@ -348,7 +350,12 @@ private fun CompareRow(label: String, before: String, now: String) {
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column {
-                BracketLabel(text = "Before", color = colors.onSurfaceVariant)
+                Text(
+                    "Before",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = JetBrainsMono,
+                    color = colors.onSurfaceVariant,
+                )
                 Spacer(Modifier.height(2.dp))
                 Text(
                     before,
@@ -358,7 +365,12 @@ private fun CompareRow(label: String, before: String, now: String) {
                 )
             }
             Column(horizontalAlignment = Alignment.End) {
-                BracketLabel(text = "Now", color = SystemSuccess)
+                Text(
+                    "Now",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = JetBrainsMono,
+                    color = SystemSuccess,
+                )
                 Spacer(Modifier.height(2.dp))
                 Text(
                     now,
@@ -377,5 +389,7 @@ internal fun formatCompletionRate(rate: Float): String = "${(rate * 100).toInt()
 internal fun improvementCopy(percent: Float): String =
     "Your personal score moved about ${"%.1f".format(percent)}% compared to last week."
 
-internal fun nextFocusCopy(bottomCode: String): String =
-    "$bottomCode is your lowest attribute right now — one small quest there could help balance things."
+internal fun nextFocusCopy(bottomCode: String): String = areaToInvestCopy(bottomCode)
+
+internal fun weeklyReviewEncouragement(seed: Int): String =
+    SystemMessages.forContext(MotivationContext.WeeklyReview, seed)

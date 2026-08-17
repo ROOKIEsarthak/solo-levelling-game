@@ -1,7 +1,6 @@
 package com.example.solo_levelling.ui.streak
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,7 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -32,20 +30,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.domain.copy.SystemMessages
-import com.example.solo_levelling.ui.components.BracketLabel
 import com.example.solo_levelling.ui.components.CyberProgressBar
 import com.example.solo_levelling.ui.components.GlassLevel
 import com.example.solo_levelling.ui.components.GlassSurface
-import com.example.solo_levelling.ui.components.GhostTextButton
 import com.example.solo_levelling.ui.components.SystemActionButton
 import com.example.solo_levelling.ui.components.SystemSectionHeader
 import com.example.solo_levelling.ui.theme.JetBrainsMono
 import com.example.solo_levelling.ui.theme.SystemBackground
 import com.example.solo_levelling.ui.theme.SystemPrimary
 import com.example.solo_levelling.ui.theme.SystemSecondary
-import com.example.solo_levelling.ui.theme.SystemTertiary
 
-private enum class RecoveryPhase { Reflect, Diagnostics, Reinit }
+private enum class RecoveryPhase { Reflect, Continue }
 
 @Composable
 fun StreakRecoveryHost(
@@ -91,21 +86,20 @@ fun StreakRecoveryHost(
                 ) {
                     SystemSectionHeader(
                         tag = when (currentPhase) {
-                            RecoveryPhase.Reflect -> "[ REFLECT ]"
-                            RecoveryPhase.Diagnostics -> "[ DIAGNOSTICS ]"
-                            RecoveryPhase.Reinit -> "[ CONTINUE ]"
+                            RecoveryPhase.Reflect -> "Reflect"
+                            RecoveryPhase.Continue -> "Continue"
                         },
                         accent = SystemSecondary,
                     )
                     Text(
-                        text = "PHASE ${phase + 1}/3",
+                        text = "Phase ${phase + 1}/2",
                         style = MaterialTheme.typography.labelSmall,
                         fontFamily = JetBrainsMono,
                         color = colors.onSurfaceVariant,
-                        letterSpacing = 2.sp,
+                        letterSpacing = 1.sp,
                     )
                 }
-                CyberProgressBar(progress = (phase + 1) / 3f)
+                CyberProgressBar(progress = (phase + 1) / 2f)
 
                 when (currentPhase) {
                     RecoveryPhase.Reflect -> {
@@ -116,7 +110,10 @@ fun StreakRecoveryHost(
                             textAlign = TextAlign.Center,
                         )
                         Text(
-                            text = "Systems experience entropy. True sovereignty is found in the recovery, not the perfection.",
+                            text = SystemMessages.forContext(
+                                SystemMessages.MotivationContext.Recovery,
+                                event.previousStreak,
+                            ),
                             style = MaterialTheme.typography.bodyMedium,
                             color = colors.onSurfaceVariant,
                             textAlign = TextAlign.Center,
@@ -143,25 +140,24 @@ fun StreakRecoveryHost(
                             ),
                         )
                         SystemActionButton(
-                            label = "ENGAGE",
-                            onClick = { phase = RecoveryPhase.Diagnostics.ordinal },
+                            label = "Continue",
+                            onClick = { phase = RecoveryPhase.Continue.ordinal },
                             enabled = answer.isNotBlank(),
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    RecoveryPhase.Diagnostics -> {
-                        BracketLabel(text = "SYSTEM DIAGNOSTICS", color = SystemSecondary)
+                    RecoveryPhase.Continue -> {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             DiagnosticStat(
-                                label = "PREVIOUS STREAK",
+                                label = "Previous streak",
                                 value = "${event.previousStreak}d",
                                 modifier = Modifier.weight(1f),
                             )
                             DiagnosticStat(
-                                label = "PREVIOUS BEST",
+                                label = "Previous best",
                                 value = "${event.best}d",
                                 modifier = Modifier.weight(1f),
                             )
@@ -169,7 +165,7 @@ fun StreakRecoveryHost(
                         GlassSurface(level = GlassLevel.Level1) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(
-                                    text = "CURRENT  0 DAYS",
+                                    text = "Current · 0 days",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontFamily = JetBrainsMono,
                                     color = colors.onSurfaceVariant,
@@ -190,38 +186,6 @@ fun StreakRecoveryHost(
                             }
                         }
                         Text(
-                            text = SystemMessages.pick(SystemMessages.Category.Recovery, event.previousStreak),
-                            textAlign = TextAlign.Center,
-                            color = SystemPrimary,
-                            fontFamily = JetBrainsMono,
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleSmall,
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            GhostTextButton(
-                                label = "ABORT",
-                                onClick = { phase = RecoveryPhase.Reflect.ordinal },
-                                modifier = Modifier.weight(1f),
-                            )
-                            SystemActionButton(
-                                label = "ACKNOWLEDGE",
-                                onClick = { phase = RecoveryPhase.Reinit.ordinal },
-                                modifier = Modifier.weight(1f),
-                                primary = false,
-                            )
-                        }
-                    }
-                    RecoveryPhase.Reinit -> {
-                        Text(
-                            text = "System Reinitialized.",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center,
-                        )
-                        Text(
                             text = "\"${SystemMessages.FALL_ANSWER}\"",
                             textAlign = TextAlign.Center,
                             style = MaterialTheme.typography.titleMedium,
@@ -234,19 +198,22 @@ fun StreakRecoveryHost(
                             textAlign = TextAlign.Center,
                         )
                         Text(
-                            text = "THE STREAK ENDED.\nYOUR PROGRESS DIDN'T.",
+                            text = SystemMessages.forContext(
+                                SystemMessages.MotivationContext.StreakBroken,
+                                event.previousStreak,
+                            ),
                             textAlign = TextAlign.Center,
                             style = MaterialTheme.typography.bodyMedium,
-                            fontFamily = JetBrainsMono,
+                            color = colors.onSurfaceVariant,
                         )
                         Text(
-                            text = "TODAY'S MISSION — Complete one objective. Start rebuilding.",
+                            text = "Today's mission — complete one objective. Start rebuilding.",
                             textAlign = TextAlign.Center,
                             color = colors.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall,
                         )
                         SystemActionButton(
-                            label = "BEGIN AGAIN",
+                            label = "Begin again",
                             onClick = {
                                 vm.dismiss()
                                 onBeginAgain()

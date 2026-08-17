@@ -27,6 +27,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.core.config.SystemDefaults
+import com.example.solo_levelling.domain.copy.SystemMessages
 import com.example.solo_levelling.domain.model.QuestStatus
 import com.example.solo_levelling.domain.service.QuestCompletionService
 import com.example.solo_levelling.ui.components.AttributeSummary
@@ -42,6 +43,8 @@ import com.example.solo_levelling.ui.components.TodayProgressStrip
 import com.example.solo_levelling.ui.components.attributeDisplays
 import com.example.solo_levelling.ui.components.attributeInsight
 import com.example.solo_levelling.ui.components.greetingForHour
+import com.example.solo_levelling.ui.components.humanizeNextActionDetail
+import com.example.solo_levelling.ui.components.humanizeSuggestionTitle
 import com.example.solo_levelling.ui.theme.JetBrainsMono
 import com.example.solo_levelling.ui.theme.Spacing
 import com.example.solo_levelling.ui.theme.SystemPrimary
@@ -151,33 +154,40 @@ fun DashboardScreen(
             }
 
             item {
-                SystemSectionHeader(tag = "TODAY'S MISSION")
+                TodayProgressStrip(
+                    questsDone = completed,
+                    questsTotal = total,
+                    xpLabel = "+$xpLast7Days XP · 7D",
+                    streakDays = streakDays,
+                )
+            }
+
+            item {
+                SystemSectionHeader(tag = "Today's mission")
                 Spacer(Modifier.height(Spacing.xs))
                 val action = nextAction
                 if (action == null) {
                     SystemIdleEmpty(
-                        title = "NO ACTIVE MISSION",
-                        subtitle = "Your next mission will appear here.",
-                        actionLabel = "VIEW QUESTS",
+                        actionLabel = "View quests",
                         onAction = onOpenMissions,
                     )
                 } else {
                     GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level2) {
                         Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                             Text(
-                                action.title,
+                                humanizeSuggestionTitle(action.title),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                             )
                             if (action.detail.isNotBlank()) {
                                 Text(
-                                    action.detail,
+                                    humanizeNextActionDetail(action.detail),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             SystemActionButton(
-                                label = "START",
+                                label = "Begin",
                                 onClick = {
                                     when (action.routeHint) {
                                         "quests" -> onOpenMissions()
@@ -194,24 +204,13 @@ fun DashboardScreen(
                             } ?: quests.firstOrNull { it.status == QuestStatus.AVAILABLE.name }
                             if (priorityQuest != null) {
                                 GhostTextButton(
-                                    label = "COMPLETE NOW",
+                                    label = "Complete now",
                                     onClick = {
                                         scope.launch {
                                             val result = withContext(Dispatchers.IO) {
                                                 container.questCompletion.complete(priorityQuest.id)
                                             }
-                                            when (result) {
-                                                is QuestCompletionService.Result.Completed ->
-                                                    onMessage("Quest completed · +${result.xp} XP")
-                                                QuestCompletionService.Result.AlreadyCompleted ->
-                                                    onMessage("Quest already completed")
-                                                QuestCompletionService.Result.NotFound ->
-                                                    onMessage("Quest not found")
-                                                QuestCompletionService.Result.InvalidStatus ->
-                                                    onMessage("Quest can't be completed right now")
-                                                QuestCompletionService.Result.DailyCapReached ->
-                                                    onMessage("Daily XP cap reached")
-                                            }
+                                            onMessage(questCompletionUserMessage(result))
                                         }
                                     },
                                 )
@@ -229,20 +228,15 @@ fun DashboardScreen(
                 )
             }
 
-            item {
-                TodayProgressStrip(
-                    questsDone = completed,
-                    questsTotal = total,
-                    xpLabel = "+$xpLast7Days XP · 7D",
-                    streakDays = streakDays,
-                )
-            }
-
             if (suggestions.isNotEmpty()) {
                 item {
                     GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
                         Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                            SystemSectionHeader(tag = "SUGGESTIONS")
+                            Text(
+                                "Suggestions",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                             suggestions.take(2).forEach { suggestion ->
                                 Row(
                                     Modifier.fillMaxWidth(),
@@ -251,18 +245,18 @@ fun DashboardScreen(
                                 ) {
                                     Column(Modifier.weight(1f)) {
                                         Text(
-                                            suggestion.title,
+                                            humanizeSuggestionTitle(suggestion.title),
                                             style = MaterialTheme.typography.bodySmall,
-                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                         Text(
                                             suggestion.detail,
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                                         )
                                     }
                                     GhostTextButton(
-                                        label = "DISMISS",
+                                        label = "Dismiss",
                                         onClick = { vm.dismissSuggestion(suggestion.key) },
                                     )
                                 }
@@ -276,24 +270,24 @@ fun DashboardScreen(
                 item {
                     GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
                         Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                            SystemSectionHeader(tag = "QUICK ACTIONS")
+                            SystemSectionHeader(tag = "Quick actions")
                             Row(
                                 Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
                             ) {
                                 if (modules.career) {
-                                    GhostTextButton(label = "CAREER", onClick = onOpenCareer)
+                                    GhostTextButton(label = "Career", onClick = onOpenCareer)
                                 }
                                 if (modules.workout) {
                                     GhostTextButton(
-                                        label = if (workoutToday != null) "WORKOUT" else "+ WORKOUT",
+                                        label = if (workoutToday != null) "Workout" else "Add workout",
                                         onClick = onOpenWorkout,
                                     )
                                 }
                                 if (modules.diet) {
                                     val calories = nutritionToday?.calories ?: 0
                                     GhostTextButton(
-                                        label = if (calories > 0) "MEAL" else "+ MEAL",
+                                        label = if (calories > 0) "Meal" else "Add meal",
                                         onClick = onOpenNutrition,
                                     )
                                 }
@@ -314,4 +308,17 @@ fun DashboardScreen(
             item { Spacer(Modifier.height(Spacing.md)) }
         }
     }
+}
+
+internal fun questCompletionUserMessage(result: QuestCompletionService.Result): String = when (result) {
+    is QuestCompletionService.Result.Completed ->
+        SystemMessages.questCompletedFeedback(result.xp)
+    QuestCompletionService.Result.AlreadyCompleted ->
+        "Quest already completed"
+    QuestCompletionService.Result.NotFound ->
+        "Quest not found"
+    QuestCompletionService.Result.InvalidStatus ->
+        "Quest can't be completed right now"
+    QuestCompletionService.Result.DailyCapReached ->
+        "Daily XP cap reached"
 }

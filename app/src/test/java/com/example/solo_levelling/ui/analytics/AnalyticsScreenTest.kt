@@ -22,6 +22,21 @@ class AnalyticsScreenTest {
 
     @Test
     fun p_nextFocusCopy() {
-        assertTrue(nextFocusCopy("FOC").contains("FOC"))
+        assertEquals("Focus — an area to invest in.", nextFocusCopy("FOC"))
+    }
+
+    @Test
+    fun n_nextFocusCopy_unknownCode() {
+        assertTrue(nextFocusCopy("XYZ").contains("XYZ"))
+    }
+
+    @Test
+    fun p_weeklyReviewEncouragement() {
+        assertTrue(weeklyReviewEncouragement(42).isNotBlank())
+    }
+
+    @Test
+    fun e_weeklyReviewEncouragement_stableForSeed() {
+        assertEquals(weeklyReviewEncouragement(7), weeklyReviewEncouragement(7))
     }
 }

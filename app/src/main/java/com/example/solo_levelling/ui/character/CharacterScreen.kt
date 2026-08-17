@@ -52,6 +52,7 @@ import com.example.solo_levelling.ui.components.StreakIndicator
 import com.example.solo_levelling.ui.components.SystemIdleEmpty
 import com.example.solo_levelling.ui.components.SystemSectionHeader
 import com.example.solo_levelling.ui.components.attributeDisplays
+import com.example.solo_levelling.ui.components.attributeGrowthInsight
 import com.example.solo_levelling.ui.components.attributeInsight
 import com.example.solo_levelling.ui.components.progressFraction
 import com.example.solo_levelling.ui.components.xpProgressLabel
@@ -139,13 +140,13 @@ fun CharacterScreen(container: AppContainer) {
             }
 
             item {
-                SystemSectionHeader(tag = "ATTRIBUTES")
+                SystemSectionHeader(tag = "Attributes")
             }
 
             if (displays.isEmpty()) {
                 item {
                     SystemIdleEmpty(
-                        title = "NO ATTRIBUTES YET",
+                        title = "No attributes yet",
                         subtitle = "Complete quests to grow your attribute network.",
                     )
                 }
@@ -161,9 +162,10 @@ fun CharacterScreen(container: AppContainer) {
                                     lifetimeXp = attr.lifetimeXp,
                                 )
                             }
-                            if (insight.lowestCode != null && displays.size > 1) {
+                            val growth = attributeGrowthInsight(insight)
+                            if (growth.isNotBlank() && displays.size > 1) {
                                 Text(
-                                    "${insight.lowestCode} is your lowest attribute — worth a little attention.",
+                                    growth,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -228,7 +230,7 @@ fun CharacterScreen(container: AppContainer) {
             if (ledger.isEmpty()) {
                 item {
                     SystemIdleEmpty(
-                        title = "NO XP RECORDED",
+                        title = "No XP recorded",
                         subtitle = "Quest completions and missions will appear here.",
                     )
                 }

@@ -79,7 +79,7 @@ fun HistoryScreen(
 
         if (recentXp.isEmpty()) {
             SystemIdleEmpty(
-                title = "NO XP ENTRIES",
+                title = "No XP entries",
                 subtitle = "Complete quests and missions to populate the system log.",
             )
         } else {
@@ -113,7 +113,7 @@ fun HistoryScreen(
 
         if (recentWorkouts.isEmpty()) {
             SystemIdleEmpty(
-                title = "NO WORKOUTS LOGGED",
+                title = "No workouts logged",
                 subtitle = "Training sessions will appear here once recorded.",
                 actionLabel = "OPEN WORKOUT",
                 onAction = onOpenWorkout,

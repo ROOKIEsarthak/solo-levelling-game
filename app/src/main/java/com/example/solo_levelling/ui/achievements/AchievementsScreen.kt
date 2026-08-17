@@ -81,45 +81,41 @@ fun AchievementsScreen(container: AppContainer) {
                             color = colors.onSurfaceVariant,
                         )
                     }
-                GlassSurface(
-                    modifier = Modifier.align(Alignment.End),
-                    level = GlassLevel.Level2,
-                    cornerRadius = 8.dp,
-                ) {
-                    Column(
-                        modifier = Modifier.semantics {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.End)
+                        .semantics {
                             contentDescription = "Total completion $completion"
                         },
-                        horizontalAlignment = Alignment.End,
-                    ) {
+                    horizontalAlignment = Alignment.End,
+                ) {
+                    Text(
+                        text = "Total completion",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = JetBrainsMono,
+                        color = SystemPrimary,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row(verticalAlignment = Alignment.Bottom) {
                         Text(
-                            text = "TOTAL COMPLETION",
-                            style = MaterialTheme.typography.labelSmall,
+                            text = unlockedCount.toString(),
+                            style = MaterialTheme.typography.titleLarge,
                             fontFamily = JetBrainsMono,
+                            fontWeight = FontWeight.Bold,
                             color = SystemPrimary,
                             maxLines = 1,
                             softWrap = false,
-                            overflow = TextOverflow.Ellipsis,
                         )
-                        Row(verticalAlignment = Alignment.Bottom) {
-                            Text(
-                                text = unlockedCount.toString(),
-                                style = MaterialTheme.typography.titleLarge,
-                                fontFamily = JetBrainsMono,
-                                fontWeight = FontWeight.Bold,
-                                color = SystemPrimary,
-                                maxLines = 1,
-                                softWrap = false,
-                            )
-                            Text(
-                                text = "/${defs.size}",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontFamily = JetBrainsMono,
-                                color = colors.outline,
-                                maxLines = 1,
-                                softWrap = false,
-                            )
-                        }
+                        Text(
+                            text = "/${defs.size}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontFamily = JetBrainsMono,
+                            color = colors.outline,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
                     }
                 }
             }
@@ -129,7 +125,7 @@ fun AchievementsScreen(container: AppContainer) {
 
             if (defs.isEmpty()) {
                 SystemIdleEmpty(
-                    title = "NO ACHIEVEMENTS",
+                    title = "No achievements",
                     subtitle = "Achievement definitions will appear once configured.",
                     modifier = Modifier.weight(1f),
                 )

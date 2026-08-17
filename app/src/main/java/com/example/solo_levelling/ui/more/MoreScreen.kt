@@ -15,14 +15,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.solo_levelling.ui.components.EnergyFieldBackground
 import com.example.solo_levelling.ui.components.GlassLevel
 import com.example.solo_levelling.ui.components.GlassSurface
 import com.example.solo_levelling.ui.components.SystemSectionHeader
-import com.example.solo_levelling.ui.theme.JetBrainsMono
+import com.example.solo_levelling.ui.theme.Spacing
 import com.example.solo_levelling.ui.theme.SystemError
-import com.example.solo_levelling.ui.theme.SystemPrimary
 import com.example.solo_levelling.ui.theme.SystemSecondary
 import com.example.solo_levelling.ui.theme.SystemTertiary
 
@@ -52,15 +50,8 @@ fun MoreScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = "MORE",
-                    fontFamily = JetBrainsMono,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 3.sp,
-                    color = SystemPrimary,
-                    style = MaterialTheme.typography.titleMedium,
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
+                SystemSectionHeader(tag = "More")
                 Text(
                     text = "Everything else in your system",
                     style = MaterialTheme.typography.bodySmall,
@@ -69,7 +60,7 @@ fun MoreScreen(
             }
 
             HubSection(
-                tag = "[ GROW ]",
+                tag = "Grow",
                 accent = SystemTertiary,
             ) {
                 HubRow("Quests", "Daily missions and objectives", onOpenMissions)
@@ -80,7 +71,7 @@ fun MoreScreen(
             }
 
             HubSection(
-                tag = "[ BODY ]",
+                tag = "Body",
                 accent = SystemError,
             ) {
                 if (showWorkout) {
@@ -92,7 +83,7 @@ fun MoreScreen(
             }
 
             HubSection(
-                tag = "[ SYSTEM ]",
+                tag = "System",
                 accent = SystemSecondary,
             ) {
                 HubRow("Settings", "Configure your system", onOpenSettings)
@@ -111,32 +102,34 @@ private fun HubSection(
     accent: androidx.compose.ui.graphics.Color,
     content: @Composable () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
         SystemSectionHeader(tag = tag, accent = accent)
-        content()
+        GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                content()
+            }
+        }
     }
 }
 
 @Composable
 private fun HubRow(title: String, subtitle: String, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
-    GlassSurface(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        level = GlassLevel.Level1,
+        verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = title,
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Text(
-                text = subtitle,
-                color = colors.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
+        Text(
+            text = title,
+            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.titleSmall,
+        )
+        Text(
+            text = subtitle,
+            color = colors.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }

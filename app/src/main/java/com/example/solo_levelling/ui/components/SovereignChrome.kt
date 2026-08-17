@@ -52,7 +52,7 @@ enum class GlassLevel { Level1, Level2 }
 fun GlassSurface(
     modifier: Modifier = Modifier,
     level: GlassLevel = GlassLevel.Level1,
-    borderAlpha: Float = if (level == GlassLevel.Level2) 0.2f else 0.15f,
+    borderAlpha: Float = if (level == GlassLevel.Level2) 0.14f else 0.10f,
     cornerRadius: Dp = 12.dp,
     contentPadding: Dp = Spacing.md,
     content: @Composable () -> Unit,
@@ -106,8 +106,9 @@ fun SystemActionButton(
     modifier: Modifier = Modifier,
     primary: Boolean = true,
     enabled: Boolean = true,
+    bracketed: Boolean = false,
 ) {
-    val text = bracketize(label)
+    val text = displayLabel(label, bracketed)
     if (primary) {
         Button(
             onClick = onClick,
@@ -186,27 +187,25 @@ fun CyberProgressBar(
 
 @Composable
 fun SystemIdleEmpty(
-    title: String = "SYSTEM IDLE",
-    subtitle: String = "No active directives in this channel.",
+    title: String = "Nothing here yet",
+    subtitle: String = "Your next step will appear here.",
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     GlassSurface(modifier = modifier.fillMaxWidth(), level = GlassLevel.Level1) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+        Column(horizontalAlignment = Alignment.Start, modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.labelLarge,
-                fontFamily = JetBrainsMono,
-                color = SystemPrimary,
-                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(Spacing.xs))
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
             )
             if (actionLabel != null && onAction != null) {
                 Spacer(Modifier.height(Spacing.md))
@@ -239,9 +238,8 @@ fun GhostTextButton(
 ) {
     TextButton(onClick = onClick, modifier = modifier) {
         Text(
-            text = bracketize(label),
+            text = displayLabel(label, bracketed = false),
             style = MaterialTheme.typography.labelMedium,
-            fontFamily = JetBrainsMono,
             color = SystemPrimary,
         )
     }
@@ -268,10 +266,13 @@ fun RankBadge(
     rank: String,
     modifier: Modifier = Modifier,
 ) {
-    BracketLabel(
-        text = "RANK $rank",
+    Text(
+        text = "Rank $rank",
         modifier = modifier,
+        style = MaterialTheme.typography.labelMedium,
+        fontFamily = JetBrainsMono,
         color = SystemSecondary,
+        fontWeight = FontWeight.Medium,
     )
 }
 
@@ -290,9 +291,8 @@ fun PlayerHeader(
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             if (greeting != null) {
                 Text(
-                    greeting.uppercase(),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = JetBrainsMono,
+                    greeting,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -303,18 +303,16 @@ fun PlayerHeader(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                BracketLabel(text = "LVL $level", color = SystemPrimary)
-                RankBadge(rank = rank)
-            }
+            Text(
+                "Level $level · Rank $rank",
+                style = MaterialTheme.typography.titleSmall,
+                fontFamily = JetBrainsMono,
+                color = SystemPrimary,
+            )
             CyberProgressBar(progress = progress, height = 8.dp)
             Text(
-                xpProgressLabel(xpIntoLevel, xpNeed),
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = JetBrainsMono,
+                xpToNextLabel(xpIntoLevel, xpNeed),
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -328,35 +326,49 @@ fun AttributeRow(
     fraction: Float,
     modifier: Modifier = Modifier,
     lifetimeXp: Int? = null,
+    detailed: Boolean = false,
 ) {
+    val presentation = attributePresentation(code)
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                code,
-                style = MaterialTheme.typography.labelMedium,
-                fontFamily = JetBrainsMono,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                value.toString(),
-                style = MaterialTheme.typography.titleSmall,
-                fontFamily = JetBrainsMono,
-                fontWeight = FontWeight.Bold,
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    presentation.displayName,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    if (detailed) presentation.meaning else presentation.cues,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = if (detailed) 2 else 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    value.toString(),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontFamily = JetBrainsMono,
+                    fontWeight = FontWeight.Bold,
+                )
+                if (lifetimeXp != null) {
+                    Text(
+                        "XP $lifetimeXp",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = JetBrainsMono,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
         CyberProgressBar(progress = fraction, height = 6.dp)
-        if (lifetimeXp != null) {
-            Text(
-                "Lifetime XP $lifetimeXp",
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = JetBrainsMono,
-                color = SystemPrimary.copy(alpha = 0.7f),
-            )
-        }
     }
 }
 
@@ -365,14 +377,14 @@ fun AttributeSummary(
     displays: List<AttributeDisplay>,
     insight: AttributeInsight,
     modifier: Modifier = Modifier,
-    compactLimit: Int = 3,
+    compactLimit: Int = 4,
     showAll: Boolean = false,
     onViewCharacter: (() -> Unit)? = null,
 ) {
     val rows = if (showAll) displays else topAttributeDisplays(displays, compactLimit)
     GlassSurface(modifier = modifier.fillMaxWidth(), level = GlassLevel.Level1) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            SystemSectionHeader(tag = "ATTRIBUTES")
+            SystemSectionHeader(tag = "YOUR CHARACTER")
             if (rows.isEmpty()) {
                 Text(
                     "Attributes will appear as you progress.",
@@ -383,16 +395,17 @@ fun AttributeSummary(
                 rows.forEach { attr ->
                     AttributeRow(code = attr.code, value = attr.value, fraction = attr.fraction)
                 }
-                if (insight.lowestCode != null && displays.size > 1) {
+                val growth = attributeGrowthInsight(insight)
+                if (growth.isNotBlank() && displays.size > 1) {
                     Text(
-                        "${insight.lowestCode} is your lowest attribute — an area to explore.",
+                        growth,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
             if (onViewCharacter != null) {
-                GhostTextButton(label = "VIEW CHARACTER", onClick = onViewCharacter)
+                GhostTextButton(label = "View character", onClick = onViewCharacter)
             }
         }
     }
@@ -530,15 +543,15 @@ fun MissionQuestCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    if (completed) "COMPLETED" else if (locked) "LOCKED" else "ACTIVE",
+                    if (completed) "Completed" else if (locked) "Locked" else "Active",
                     style = MaterialTheme.typography.labelSmall,
                     fontFamily = JetBrainsMono,
-                    color = statusColor,
+                    color = if (completed) statusColor.copy(alpha = 0.75f) else statusColor,
                     fontWeight = FontWeight.Medium,
                 )
                 when {
-                    !completed && !locked -> SystemActionButton(label = "COMPLETE", onClick = onPrimary)
-                    completed && onUndo != null -> SystemActionButton(label = "UNDO", onClick = onUndo, primary = false)
+                    !completed && !locked -> SystemActionButton(label = "Complete", onClick = onPrimary)
+                    completed && onUndo != null -> SystemActionButton(label = "Undo", onClick = onUndo, primary = false)
                 }
             }
         }
@@ -600,7 +613,7 @@ fun TodayProgressStrip(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (streakDays > 0) {
-                BracketLabel(text = "$streakDays DAY STREAK", color = SystemTertiary)
+                BracketLabel(text = "$streakDays day streak", color = SystemTertiary)
             }
         }
     }

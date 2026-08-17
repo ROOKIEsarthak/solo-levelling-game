@@ -236,7 +236,7 @@ private fun RoadmapTab(
 
     if (careerNodes.isEmpty()) {
         SystemIdleEmpty(
-            title = "TIMELINE IDLE",
+            title = "Timeline idle",
             subtitle = "Career nodes will appear as your path is configured.",
         )
     } else {
@@ -416,7 +416,7 @@ private fun DsaTab(
 
     if (dsa.isEmpty()) {
         SystemIdleEmpty(
-            title = "NO PROBLEMS",
+            title = "No problems",
             subtitle = "Add your first DSA problem below.",
         )
     }
@@ -503,7 +503,7 @@ private fun SystemDesignTab(
 
     if (sortedTopics.isEmpty()) {
         SystemIdleEmpty(
-            title = "NO TOPICS",
+            title = "No topics",
             subtitle = "System design modules will appear here.",
         )
     } else {
@@ -559,7 +559,7 @@ private fun AreaProgressBar(label: String, percent: Int) {
         }
         CyberProgressBar(progress = progressFraction(percent.toFloat(), 100f), height = 6.dp)
         if (percent < 30) {
-            BracketLabel(text = "ENTRY REQUIRED", color = SystemError.copy(alpha = 0.85f))
+            BracketLabel(text = "Entry required", color = SystemError.copy(alpha = 0.85f))
         }
     }
 }

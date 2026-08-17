@@ -35,7 +35,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.domain.copy.SystemMessages
-import com.example.solo_levelling.ui.components.BracketLabel
 import com.example.solo_levelling.ui.components.GlassLevel
 import com.example.solo_levelling.ui.components.GlassSurface
 import com.example.solo_levelling.ui.components.SystemActionButton
@@ -102,11 +101,11 @@ fun LevelUpHost(container: AppContainer) {
                 is LevelUpEvent.LevelUp -> {
                     AnimatedVisibility(visible = stage >= 1, enter = fadeIn(), exit = fadeOut()) {
                         Text(
-                            text = "LEVEL UP",
+                            text = "Level up",
                             color = SystemPrimary,
                             fontFamily = JetBrainsMono,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 6.sp,
+                            letterSpacing = 2.sp,
                             style = MaterialTheme.typography.headlineMedium,
                         )
                     }
@@ -150,20 +149,25 @@ fun LevelUpHost(container: AppContainer) {
                             level = GlassLevel.Level2,
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                BracketLabel(text = "REWARDS ACQUIRED", color = SystemPrimary)
+                                Text(
+                                    text = "Rewards acquired",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontFamily = JetBrainsMono,
+                                    color = SystemPrimary,
+                                )
                                 if (improvement != null) {
                                     RewardRow(
-                                        label = "IMPROVEMENT +${"%.1f".format(improvement)}%",
+                                        label = "Improvement +${"%.1f".format(improvement)}%",
                                         accent = SystemPrimary,
                                     )
                                 } else {
                                     RewardRow(
-                                        label = "BASELINE TRACKING ACTIVE",
+                                        label = "Baseline tracking active",
                                         accent = SystemPrimary,
                                     )
                                 }
                                 RewardRow(
-                                    label = "LEVEL ${e.oldLevel} → ${e.newLevel}",
+                                    label = "Level ${e.oldLevel} → ${e.newLevel}",
                                     accent = SystemTertiary,
                                 )
                             }
@@ -171,7 +175,10 @@ fun LevelUpHost(container: AppContainer) {
                     }
                     AnimatedVisibility(visible = stage >= 4, enter = fadeIn(), exit = fadeOut()) {
                         Text(
-                            text = "Your progression continues.",
+                            text = SystemMessages.forContext(
+                                SystemMessages.MotivationContext.LevelMilestone,
+                                e.newLevel,
+                            ),
                             textAlign = TextAlign.Center,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -191,11 +198,11 @@ fun LevelUpHost(container: AppContainer) {
                 is LevelUpEvent.RankUp -> {
                     AnimatedVisibility(visible = stage >= 1, enter = fadeIn(), exit = fadeOut()) {
                         Text(
-                            text = "RANK UP",
+                            text = "Rank up",
                             color = SystemSecondary,
                             fontFamily = JetBrainsMono,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 6.sp,
+                            letterSpacing = 2.sp,
                             style = MaterialTheme.typography.headlineMedium,
                         )
                     }
@@ -240,13 +247,18 @@ fun LevelUpHost(container: AppContainer) {
                             borderAlpha = 0.25f,
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                BracketLabel(text = "RANK TRANSITION", color = SystemSecondary)
+                                Text(
+                                    text = "Rank transition",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontFamily = JetBrainsMono,
+                                    color = SystemSecondary,
+                                )
                                 RewardRow(
                                     label = "${e.oldRank} → ${e.newRank}",
                                     accent = SystemSecondary,
                                 )
                                 RewardRow(
-                                    label = "NEW TIER PRIVILEGES UNLOCKED",
+                                    label = "New tier privileges unlocked",
                                     accent = SystemTertiary,
                                 )
                             }
@@ -254,7 +266,10 @@ fun LevelUpHost(container: AppContainer) {
                     }
                     AnimatedVisibility(visible = stage >= 4, enter = fadeIn(), exit = fadeOut()) {
                         Text(
-                            text = SystemMessages.pick(SystemMessages.Category.Consistency, e.newRank.hashCode()),
+                            text = SystemMessages.forContext(
+                                SystemMessages.MotivationContext.RankMilestone,
+                                e.newRank.hashCode(),
+                            ),
                             textAlign = TextAlign.Center,
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -265,7 +280,7 @@ fun LevelUpHost(container: AppContainer) {
             AnimatedVisibility(visible = stage >= 6, enter = fadeIn()) {
                 Spacer(Modifier.height(8.dp))
                 SystemActionButton(
-                    label = "CONTINUE",
+                    label = "Continue",
                     onClick = { vm.dismiss() },
                     modifier = Modifier.fillMaxWidth(),
                 )
