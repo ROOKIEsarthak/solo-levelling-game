@@ -39,6 +39,9 @@ sealed class DomainEvent {
 
     data class StreakUpdated(val current: Int, val best: Int) : DomainEvent()
 
+    /** Fired when a positive streak resets to zero after a missed day. */
+    data class StreakBroken(val previousStreak: Int, val best: Int) : DomainEvent()
+
     data class AchievementUnlocked(val key: String, val unlockedAtEpochMs: Long) : DomainEvent()
 
     data class BossProgressUpdated(val bossId: Long, val progress: Float) : DomainEvent()

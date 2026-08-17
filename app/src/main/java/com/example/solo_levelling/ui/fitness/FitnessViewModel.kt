@@ -83,6 +83,51 @@ class FitnessViewModel(
             dateFlow.flatMapLatest { date -> container.db.moduleDao().observeDietLog(date) }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    val heightCm: StateFlow<String> =
+        container.db.configDao().observe("height_cm")
+            .map { it?.value.orEmpty() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
+
+    val weightKg: StateFlow<String> =
+        container.db.configDao().observe("weight_kg")
+            .map { it?.value.orEmpty() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
+
+    val bmiEstimate: StateFlow<String> =
+        container.db.configDao().observe("bmi_estimate")
+            .map { it?.value.orEmpty() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
+
+    val fitnessGoal: StateFlow<String> =
+        container.db.configDao().observe("fitness_goal")
+            .map { it?.value.orEmpty() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
+
+    val proteinTarget: StateFlow<Int> =
+        container.db.configDao().observe("protein_target")
+            .map { it?.value?.toIntOrNull() ?: 150 }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 150)
+
+    val carbTarget: StateFlow<Int> =
+        container.db.configDao().observe("carb_target")
+            .map { it?.value?.toIntOrNull() ?: 200 }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 200)
+
+    val fatTarget: StateFlow<Int> =
+        container.db.configDao().observe("fat_target")
+            .map { it?.value?.toIntOrNull() ?: 60 }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 60)
+
+    val calorieTarget: StateFlow<Int> =
+        container.db.configDao().observe("calorie_target")
+            .map { it?.value?.toIntOrNull() ?: 1800 }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 1800)
+
+    val workoutSplitId: StateFlow<String> =
+        container.db.configDao().observe("workout_split_id")
+            .map { it?.value.orEmpty() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
+
     companion object {
         fun factory(container: AppContainer) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")

@@ -117,6 +117,26 @@ data class DsaProblemEntity(
     val notes: String = "",
     val timeSpentMinutes: Int = 0,
     val solvedAtEpochMs: Long? = null,
+    val pattern: String = "",
+    val mistakes: String = "",
+    val approach: String = "",
+    val reviewDueEpochMs: Long? = null,
+)
+
+data class SystemDesignConceptEntity(
+    val id: String,
+    val title: String,
+    val status: String = "LEARNING",
+    val notes: String = "",
+)
+
+data class SystemDesignTopicEntity(
+    val id: String,
+    val title: String,
+    val orderIndex: Int,
+    val concepts: List<SystemDesignConceptEntity> = emptyList(),
+    val confidence: Int = 0,
+    val notes: String = "",
 )
 
 data class WorkoutEntity(

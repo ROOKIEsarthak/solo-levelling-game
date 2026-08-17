@@ -2,7 +2,10 @@ package com.example.solo_levelling.data.seed
 
 import com.example.solo_levelling.data.db.entity.AchievementDefEntity
 import com.example.solo_levelling.data.db.entity.CareerNodeEntity
+import com.example.solo_levelling.data.db.entity.DsaProblemEntity
 import com.example.solo_levelling.data.db.entity.QuestTemplateEntity
+import com.example.solo_levelling.data.db.entity.SystemDesignConceptEntity
+import com.example.solo_levelling.data.db.entity.SystemDesignTopicEntity
 import com.example.solo_levelling.domain.model.AttributeCode
 
 object SeedData {
@@ -17,6 +20,7 @@ object SeedData {
             scheduleDaysCsv = "1,2,3,4,5",
             verificationType = "COUNT",
             verificationTarget = 2f,
+            priorityTags = "module_career",
         ),
         QuestTemplateEntity(
             key = "workout_daily",
@@ -30,6 +34,7 @@ object SeedData {
                 AttributeCode.VIT to 5,
             ),
             scheduleDaysCsv = "1,2,3,4,5,6",
+            priorityTags = "module_workout",
         ),
         QuestTemplateEntity(
             key = "deep_work",
@@ -53,6 +58,7 @@ object SeedData {
             verificationType = "METRIC_THRESHOLD",
             verificationTarget = 10000f,
             verificationUnit = "STEPS",
+            priorityTags = "module_workout",
         ),
         QuestTemplateEntity(
             key = "journal",
@@ -72,7 +78,7 @@ object SeedData {
             attributeRewardsJson = rewards(AttributeCode.VIT to 15),
             scheduleDaysCsv = "1,2,3,4,5,6,7",
             verificationType = "MANUAL",
-            priorityTags = "health,fitness",
+            priorityTags = "module_diet,health,fitness",
         ),
         QuestTemplateEntity(
             key = "system_design",
@@ -83,7 +89,7 @@ object SeedData {
             attributeRewardsJson = rewards(AttributeCode.INT to 50, AttributeCode.WIS to 30),
             scheduleDaysCsv = "6",
             verificationType = "MANUAL",
-            priorityTags = "career,system_design",
+            priorityTags = "module_career,career,system_design",
             difficulty = 2,
         ),
         QuestTemplateEntity(
@@ -143,6 +149,56 @@ object SeedData {
         CareerNodeEntity(track = "Interview", title = "Mock Interviews", orderIndex = 2, description = "Timed practice"),
         CareerNodeEntity(track = "Interview", title = "Offer Negotiation", orderIndex = 3, description = "Comp and leveling"),
     )
+
+    fun dsaStarterProblems(): List<DsaProblemEntity> = listOf(
+        DsaProblemEntity(title = "Two Sum", topic = "Arrays", difficulty = "EASY", externalId = "lc_1"),
+        DsaProblemEntity(title = "Best Time to Buy and Sell Stock", topic = "Arrays", difficulty = "EASY", externalId = "lc_121"),
+        DsaProblemEntity(title = "Valid Anagram", topic = "Strings", difficulty = "EASY", externalId = "lc_242"),
+        DsaProblemEntity(title = "Longest Substring Without Repeating Characters", topic = "Strings", difficulty = "MEDIUM", externalId = "lc_3"),
+        DsaProblemEntity(title = "Group Anagrams", topic = "Hashing", difficulty = "MEDIUM", externalId = "lc_49"),
+        DsaProblemEntity(title = "Contains Duplicate", topic = "Hashing", difficulty = "EASY", externalId = "lc_217"),
+        DsaProblemEntity(title = "Valid Palindrome", topic = "Two Pointers", difficulty = "EASY", externalId = "lc_125"),
+        DsaProblemEntity(title = "3Sum", topic = "Two Pointers", difficulty = "MEDIUM", externalId = "lc_15"),
+        DsaProblemEntity(title = "Maximum Average Subarray I", topic = "Sliding Window", difficulty = "EASY", externalId = "lc_643"),
+        DsaProblemEntity(title = "Longest Repeating Character Replacement", topic = "Sliding Window", difficulty = "MEDIUM", externalId = "lc_424"),
+        DsaProblemEntity(title = "Invert Binary Tree", topic = "Trees", difficulty = "EASY", externalId = "lc_226"),
+        DsaProblemEntity(title = "Number of Islands", topic = "Graphs", difficulty = "MEDIUM", externalId = "lc_200"),
+        DsaProblemEntity(title = "Climbing Stairs", topic = "DP", difficulty = "EASY", externalId = "lc_70"),
+    )
+
+    fun systemDesignTopics(): List<SystemDesignTopicEntity> = listOf(
+        sdTopic("fundamentals", "Fundamentals", 1, listOf(
+            "Requirements gathering", "Capacity estimation", "API basics", "High-level design",
+        )),
+        sdTopic("api_design", "API Design", 2, listOf(
+            "REST vs RPC", "Versioning", "Pagination", "Rate limiting",
+        )),
+        sdTopic("databases", "Databases", 3, listOf(
+            "SQL vs NoSQL", "Indexing", "Replication", "Sharding",
+        )),
+        sdTopic("caching", "Caching", 4, listOf(
+            "Cache-aside", "Write-through", "TTL & eviction", "CDN caching",
+        )),
+        sdTopic("queues", "Queues", 5, listOf(
+            "Message brokers", "At-least-once delivery", "Dead letter queues", "Backpressure",
+        )),
+        sdTopic("scaling", "Scaling", 6, listOf(
+            "Vertical vs horizontal", "Load balancing", "Auto-scaling", "Stateless services",
+        )),
+        sdTopic("distributed", "Distributed Systems", 7, listOf(
+            "CAP theorem", "Consistency models", "Leader election", "Distributed tracing",
+        )),
+    )
+
+    private fun sdTopic(id: String, title: String, order: Int, concepts: List<String>): SystemDesignTopicEntity =
+        SystemDesignTopicEntity(
+            id = id,
+            title = title,
+            orderIndex = order,
+            concepts = concepts.mapIndexed { idx, name ->
+                SystemDesignConceptEntity(id = "${id}_c$idx", title = name)
+            },
+        )
 
     private fun rewards(vararg pairs: Pair<AttributeCode, Int>): String =
         pairs.joinToString(prefix = "{", postfix = "}") { "\"${it.first.name}\":${it.second}" }

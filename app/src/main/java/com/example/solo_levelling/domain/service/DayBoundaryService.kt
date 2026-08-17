@@ -52,10 +52,14 @@ class DayBoundaryService(
         if (!DayBoundaryLogic.shouldResetStreak(lastDate, today, graceDays)) return
 
         val todayStr = today.format(dateFmt)
+        val previous = streak.current
         db.playerDao().upsertStreak(
             streak.copy(current = 0),
         )
         eventBus.publish(DomainEvent.StreakUpdated(0, streak.best))
+        if (previous > 0) {
+            eventBus.publish(DomainEvent.StreakBroken(previous, streak.best))
+        }
 
         val recoveryId = spawnRecoveryQuest(todayStr, streak)
         if (recoveryId != null) {

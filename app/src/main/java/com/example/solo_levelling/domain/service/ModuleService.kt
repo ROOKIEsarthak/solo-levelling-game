@@ -21,6 +21,8 @@ import com.example.solo_levelling.data.db.entity.NutritionTotalsEntity
 import com.example.solo_levelling.data.db.entity.PlannedExerciseEntity
 import com.example.solo_levelling.data.db.entity.RoutineLogEntity
 import com.example.solo_levelling.data.db.entity.SkillEntity
+import com.example.solo_levelling.data.db.entity.UserConfigEntity
+import com.example.solo_levelling.data.seed.SeedData
 import com.example.solo_levelling.data.db.entity.WorkoutDayPlanEntity
 import com.example.solo_levelling.data.db.entity.WorkoutLogEntity
 import com.example.solo_levelling.data.db.entity.WorkoutRoutineEntity
@@ -70,12 +72,15 @@ class ModuleService(
     suspend fun solveDsa(id: Long) {
         val problem = db.moduleDao().getDsa(id) ?: return
         if (problem.status == "SOLVED" || problem.status == "MASTERED") return
+        val now = clock.nowEpochMs()
+        val reviewDue = now + 3L * 24 * 60 * 60 * 1000
         db.moduleDao().updateDsa(
             problem.copy(
                 status = "SOLVED",
                 attempts = problem.attempts + 1,
                 confidence = (problem.confidence + 1).coerceAtMost(5),
-                solvedAtEpochMs = clock.nowEpochMs(),
+                solvedAtEpochMs = now,
+                reviewDueEpochMs = reviewDue,
             ),
         )
         progression.award(
@@ -108,6 +113,59 @@ class ModuleService(
         addSkillXp("CAREER", problem.topic.ifBlank { "DSA" }, 15)
     }
 
+    suspend fun markDsaNeedsReview(id: Long) {
+        val problem = db.moduleDao().getDsa(id) ?: return
+        if (problem.status == "NOT_STARTED") return
+        db.moduleDao().updateDsa(problem.copy(status = "NEEDS_REVIEW"))
+    }
+
+    suspend fun updateDsaNotes(id: Long, notes: String, mistakes: String, approach: String) {
+        val problem = db.moduleDao().getDsa(id) ?: return
+        db.moduleDao().updateDsa(
+            problem.copy(notes = notes, mistakes = mistakes, approach = approach),
+        )
+    }
+
+    suspend fun ensureCareerCatalogsSeeded() {
+        if (db.moduleDao().getDsaProblems().isEmpty()) {
+            SeedData.dsaStarterProblems().forEach { db.moduleDao().upsertDsa(it) }
+        }
+        if (db.moduleDao().getSystemDesignTopics().isEmpty()) {
+            db.moduleDao().replaceSystemDesignTopics(SeedData.systemDesignTopics())
+        }
+    }
+
+    suspend fun markSystemDesignConcept(topicId: String, conceptId: String, status: String) {
+        val topic = db.moduleDao().getSystemDesignTopics().find { it.id == topicId } ?: return
+        val previous = topic.concepts.find { it.id == conceptId }
+        val updatedConcepts = topic.concepts.map { concept ->
+            if (concept.id == conceptId) concept.copy(status = status) else concept
+        }
+        val statuses = updatedConcepts.mapNotNull { concept ->
+            runCatching { SystemDesignConceptStatus.valueOf(concept.status) }.getOrNull()
+        }
+        val confidence = SystemDesignProgressLogic.topicConfidence(statuses)
+        db.moduleDao().upsertSystemDesignTopic(
+            topic.copy(concepts = updatedConcepts, confidence = confidence),
+        )
+        if (previous?.status != "MASTERED" && status == "MASTERED") {
+            progression.award(
+                "SD_CONCEPT",
+                "sd_${topicId}_$conceptId",
+                10,
+                mapOf(AttributeCode.INT to 8, AttributeCode.WIS to 2),
+                applyDailyCap = true,
+            )
+        }
+    }
+
+    suspend fun setSystemDesignConfidence(topicId: String, confidence: Int) {
+        val topic = db.moduleDao().getSystemDesignTopics().find { it.id == topicId } ?: return
+        db.moduleDao().upsertSystemDesignTopic(
+            topic.copy(confidence = confidence.coerceIn(0, 100)),
+        )
+    }
+
     suspend fun logWorkout(type: String, durationMinutes: Int, notes: String = ""): Long {
         val date = todayStr()
         val existing = db.moduleDao().getWorkoutLog(date)
@@ -136,12 +194,37 @@ class ModuleService(
 
     suspend fun getWorkoutRoutine(): WorkoutRoutineEntity = db.moduleDao().getWorkoutRoutine()
 
+    suspend fun isWorkoutSplitLocked(): Boolean =
+        !db.configDao().get("workout_split_id")?.value.isNullOrBlank()
+
+    /** Returns error message on failure, null on success.
+     *  [dayMapCsv] format: `"1:1,2:3,3:5"` (split day → ISO weekday 1=Mon…7=Sun).
+     */
+    suspend fun applyWorkoutSplit(splitId: String, dayMapCsv: String): String? {
+        val map = WorkoutSplitLogic.parseDayMap(dayMapCsv)
+        val result = WorkoutSplitLogic.buildRoutine(splitId, map)
+        if (result.error != null) return result.error
+        db.configDao().upsert(UserConfigEntity("workout_split_id", splitId))
+        db.configDao().upsert(
+            UserConfigEntity("workout_split_map", WorkoutSplitLogic.encodeDayMap(map)),
+        )
+        if (result.trainingIsoDays.isNotEmpty()) {
+            db.configDao().upsert(
+                UserConfigEntity("schedule_days_csv", result.trainingIsoDays.joinToString(",")),
+            )
+        }
+        db.moduleDao().upsertWorkoutRoutine(result.routine!!)
+        return null
+    }
+
     suspend fun saveRoutineDay(dayKey: String, plan: WorkoutDayPlanEntity) {
+        if (isWorkoutSplitLocked()) return
         val routine = db.moduleDao().getWorkoutRoutine()
         db.moduleDao().upsertWorkoutRoutine(routine.withDay(dayKey, plan))
     }
 
     suspend fun setRestDay(dayKey: String) {
+        if (isWorkoutSplitLocked()) return
         saveRoutineDay(dayKey, WorkoutDayPlanEntity(enabled = false, name = "Rest", exercises = emptyList()))
     }
 
@@ -150,6 +233,7 @@ class ModuleService(
         exercise: PlannedExerciseEntity,
         workoutName: String = "",
     ) {
+        if (isWorkoutSplitLocked()) return
         val routine = db.moduleDao().getWorkoutRoutine()
         val day = routine.day(dayKey)
         val list = day.exercises.toMutableList()
@@ -165,12 +249,14 @@ class ModuleService(
     }
 
     suspend fun removePlannedExercise(dayKey: String, exerciseId: Long) {
+        if (isWorkoutSplitLocked()) return
         val routine = db.moduleDao().getWorkoutRoutine()
         val day = routine.day(dayKey)
         saveRoutineDay(dayKey, day.copy(exercises = day.exercises.filterNot { it.id == exerciseId }))
     }
 
     suspend fun reorderPlannedExercise(dayKey: String, exerciseId: Long, moveUp: Boolean) {
+        if (isWorkoutSplitLocked()) return
         val routine = db.moduleDao().getWorkoutRoutine()
         val day = routine.day(dayKey)
         val list = day.exercises.toMutableList()
@@ -213,14 +299,17 @@ class ModuleService(
 
     suspend fun upsertWorkoutLog(log: WorkoutLogEntity): Long {
         val id = db.moduleDao().upsertWorkoutLog(log)
-        progression.award(
-            "WORKOUT",
-            "workout_${log.date}",
-            40,
-            mapOf(AttributeCode.STR to 30, AttributeCode.VIT to 10),
-            applyDailyCap = true,
-        )
-        verification.tryAutoComplete(log.date)
+        val hasSets = log.exercises.any { it.sets.isNotEmpty() }
+        if (hasSets) {
+            progression.award(
+                "WORKOUT",
+                "workout_${log.date}",
+                40,
+                mapOf(AttributeCode.STR to 30, AttributeCode.VIT to 10),
+                applyDailyCap = true,
+            )
+            verification.tryAutoComplete(log.date)
+        }
         return id
     }
 
@@ -229,6 +318,7 @@ class ModuleService(
     }
 
     suspend fun removeExerciseFromLog(date: String, exerciseId: Long) {
+        if (isWorkoutSplitLocked()) return
         val log = db.moduleDao().getWorkoutLog(date) ?: return
         upsertWorkoutLog(log.copy(exercises = log.exercises.filterNot { it.id == exerciseId }))
     }
@@ -236,9 +326,23 @@ class ModuleService(
     suspend fun upsertLoggedExercise(date: String, exercise: LoggedExerciseEntity) {
         val log = startOrGetWorkoutLog(date)
         val list = log.exercises.toMutableList()
-        val withId = if (exercise.id == 0L) exercise.copy(id = System.nanoTime()) else exercise
-        val idx = list.indexOfFirst { it.id == withId.id }
-        if (idx >= 0) list[idx] = withId else list.add(withId)
+        if (exercise.id == 0L) {
+            if (isWorkoutSplitLocked()) return
+            list.add(exercise.copy(id = System.nanoTime()))
+        } else {
+            val idx = list.indexOfFirst { it.id == exercise.id }
+            if (idx < 0) {
+                if (isWorkoutSplitLocked()) return
+                list.add(exercise)
+            } else {
+                val existing = list[idx]
+                list[idx] = if (isWorkoutSplitLocked()) {
+                    existing.copy(sets = exercise.sets)
+                } else {
+                    exercise
+                }
+            }
+        }
         upsertWorkoutLog(log.copy(exercises = list))
     }
 
@@ -265,14 +369,17 @@ class ModuleService(
     suspend fun upsertDietLog(log: DietLogEntity) {
         val withTotals = log.copy(dailyTotals = computeDailyTotals(log.meals))
         db.moduleDao().upsertDietLog(withTotals)
-        progression.award(
-            "NUTRITION",
-            "nutrition_${log.date}",
-            15,
-            mapOf(AttributeCode.VIT to 15),
-            applyDailyCap = true,
-        )
-        verification.tryAutoComplete(log.date)
+        val hasFood = log.meals.any { it.foods.isNotEmpty() }
+        if (hasFood) {
+            progression.award(
+                "NUTRITION",
+                "nutrition_${log.date}",
+                15,
+                mapOf(AttributeCode.VIT to 15),
+                applyDailyCap = true,
+            )
+            verification.tryAutoComplete(log.date)
+        }
     }
 
     suspend fun deleteDietLog(date: String) {

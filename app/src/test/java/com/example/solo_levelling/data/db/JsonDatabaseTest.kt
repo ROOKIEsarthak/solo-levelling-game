@@ -8,6 +8,7 @@ import com.example.solo_levelling.data.db.entity.LoggedSetEntity
 import com.example.solo_levelling.data.db.entity.NutritionLogEntity
 import com.example.solo_levelling.data.db.entity.PlayerProfileEntity
 import com.example.solo_levelling.data.db.entity.QuestInstanceEntity
+import com.example.solo_levelling.data.db.entity.SystemDesignTopicEntity
 import com.example.solo_levelling.data.db.entity.WorkoutDayPlanEntity
 import com.example.solo_levelling.data.db.entity.WorkoutLogEntity
 import com.example.solo_levelling.data.db.entity.WorkoutRoutineEntity
@@ -171,5 +172,18 @@ class JsonDatabaseTest {
         val nutrition = migrated.moduleDao().getNutrition("2026-08-10")
         assertEquals(2000, nutrition!!.calories)
         migrated.close()
+    }
+
+    @Test
+    fun p_systemDesignTopics_persistToNestedFile() = runTest {
+        db.moduleDao().replaceSystemDesignTopics(
+            listOf(
+                SystemDesignTopicEntity(id = "fundamentals", title = "Fundamentals", orderIndex = 1),
+            ),
+        )
+        val file = File(dbDir, "career/system-design/topics.json")
+        assertTrue(file.exists())
+        assertTrue(file.readText().contains("Fundamentals"))
+        assertEquals(1, db.moduleDao().getSystemDesignTopics().size)
     }
 }

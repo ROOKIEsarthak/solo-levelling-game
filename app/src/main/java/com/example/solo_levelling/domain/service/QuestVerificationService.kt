@@ -41,6 +41,8 @@ class QuestVerificationService(
             if (instance.verificationType == VerificationType.MANUAL.name) {
                 if (template?.key == "nutrition_daily" && isNutritionCalorieTargetMet(date)) {
                     questCompletion.complete(instance.id)
+                } else if (template?.key == "workout_daily" && hasWorkoutWithSets(date)) {
+                    questCompletion.complete(instance.id)
                 }
                 continue
             }
@@ -77,6 +79,11 @@ class QuestVerificationService(
         val low = (target * 0.85).toInt()
         val high = (target * 1.15).toInt()
         return log.calories in low..high
+    }
+
+    private suspend fun hasWorkoutWithSets(date: String): Boolean {
+        val log = db.moduleDao().getWorkoutLog(date) ?: return false
+        return log.exercises.any { it.sets.isNotEmpty() }
     }
 
     private suspend fun isAutomaticSatisfied(instance: QuestInstanceEntity, date: String): Boolean {

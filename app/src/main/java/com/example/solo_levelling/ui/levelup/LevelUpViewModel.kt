@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.core.event.DomainEvent
 import com.example.solo_levelling.core.event.EventBus
+import com.example.solo_levelling.domain.copy.SystemMessages
+import com.example.solo_levelling.domain.service.AnalyticsService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,17 +19,31 @@ sealed class LevelUpEvent {
 }
 
 class LevelUpViewModel(
-    eventBus: EventBus,
+    private val eventBus: EventBus,
+    private val analytics: AnalyticsService? = null,
 ) : ViewModel() {
     private val _pendingEvent = MutableStateFlow<LevelUpEvent?>(null)
     val pendingEvent: StateFlow<LevelUpEvent?> = _pendingEvent.asStateFlow()
+
+    private val _improvementPercent = MutableStateFlow<Float?>(null)
+    val improvementPercent: StateFlow<Float?> = _improvementPercent.asStateFlow()
+
+    private val _motivationalMessage = MutableStateFlow("")
+    val motivationalMessage: StateFlow<String> = _motivationalMessage.asStateFlow()
 
     init {
         viewModelScope.launch {
             eventBus.events.collect { event ->
                 when (event) {
-                    is DomainEvent.LevelUp ->
+                    is DomainEvent.LevelUp -> {
+                        val snap = analytics?.let { runCatching { it.improvementSnapshot() }.getOrNull() }
+                        val pct = snap?.improvementPercent
+                        _improvementPercent.value = pct
+                        val intensity = SystemMessages.intensityForImprovement(pct)
+                        _motivationalMessage.value =
+                            SystemMessages.pickLevelUp(intensity, event.newLevel)
                         _pendingEvent.value = LevelUpEvent.LevelUp(event.oldLevel, event.newLevel)
+                    }
                     is DomainEvent.RankUp ->
                         _pendingEvent.value = LevelUpEvent.RankUp(event.oldRank, event.newRank)
                     is DomainEvent.XpReversed,
@@ -47,7 +63,7 @@ class LevelUpViewModel(
         fun factory(container: AppContainer) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                LevelUpViewModel(container.eventBus) as T
+                LevelUpViewModel(container.eventBus, container.analytics) as T
         }
     }
 }

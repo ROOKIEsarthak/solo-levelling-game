@@ -115,6 +115,11 @@ class AppContainer(context: Context) {
         seasonHandler.start()
         scope.launch {
             onboarding.ensureSeeded()
+            onboarding.migrateModuleFlagsIfNeeded()
+            val enabled = onboarding.currentModules()
+            if (enabled.career) {
+                modules.ensureCareerCatalogsSeeded()
+            }
             season.ensureActiveSeason()
             val profile = db.playerDao().getProfile(com.example.solo_levelling.core.config.SystemDefaults.PLAYER_ID)
             if (profile?.onboardingDone == true) {

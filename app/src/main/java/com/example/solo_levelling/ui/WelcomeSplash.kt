@@ -38,12 +38,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.solo_levelling.R
 import com.example.solo_levelling.ui.theme.CascadiaCode
+import com.example.solo_levelling.ui.theme.GlowCyan
+import com.example.solo_levelling.ui.theme.GlowPurple
+import com.example.solo_levelling.ui.theme.SplashBackground
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-private val WelcomeBg = Color(0xFF1A0A2E)
-private val GlowPurple = Color(0xFF7B2CBF)
-private val GlowBlue = Color(0xFF4CC9F0)
 
 /** Pick preferred Japanese TTS voice name: explicit male, else non-female, else first. */
 fun preferJapaneseVoiceName(names: List<String>): String? {
@@ -126,7 +125,7 @@ fun WelcomeSplash() {
     Box(
         Modifier
             .fillMaxSize()
-            .background(WelcomeBg),
+            .background(SplashBackground),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.fillMaxSize()) {
@@ -136,7 +135,7 @@ fun WelcomeSplash() {
                 brush = Brush.radialGradient(
                     colors = listOf(
                         GlowPurple.copy(alpha = 0.55f * glowPulse),
-                        GlowBlue.copy(alpha = 0.18f * glowPulse),
+                        GlowCyan.copy(alpha = 0.18f * glowPulse),
                         Color.Transparent,
                     ),
                     center = Offset(cx, cy),
@@ -174,13 +173,13 @@ fun WelcomeSplash() {
             Text(
                 text = "起きろ",
                 modifier = Modifier.graphicsLayer { alpha = okiroAlpha.value },
-                color = Color.White.copy(alpha = 0.9f),
+                color = GlowCyan,
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Medium,
                 letterSpacing = 4.sp,
                 style = TextStyle(
                     shadow = Shadow(
-                        color = GlowBlue.copy(alpha = 0.7f),
+                        color = GlowCyan.copy(alpha = 0.7f),
                         offset = Offset(0f, 0f),
                         blurRadius = 18f,
                     ),

@@ -56,7 +56,11 @@ class QuestGenerationService(
             ?.map { it.trim().lowercase() }
             ?.filter { it.isNotEmpty() }
             .orEmpty()
-        val templates = filterByPriority(db.questDao().getActiveTemplates(), priorities)
+        val modules = resolveModules(profile?.onboardingDone == true)
+        val templates = filterByPriority(
+            filterByModules(db.questDao().getActiveTemplates(), modules),
+            priorities,
+        )
         val completionRate = recentCompletionRate(date)
         for (template in templates) {
             if (template.type == "WEEKLY" || template.type == "RECOVERY" || template.type == "MILESTONE") continue
@@ -87,8 +91,13 @@ class QuestGenerationService(
         val weekEndStr = weekEnd.format(dateFmt)
         val priorities = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)?.prioritiesCsv
             ?.split(",")?.map { it.trim().lowercase() }?.filter { it.isNotEmpty() }.orEmpty()
+        val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
+        val modules = resolveModules(profile?.onboardingDone == true)
         val templates = filterByPriority(
-            db.questDao().getActiveTemplates().filter { it.type == "WEEKLY" },
+            filterByModules(
+                db.questDao().getActiveTemplates().filter { it.type == "WEEKLY" },
+                modules,
+            ),
             priorities,
         )
         val completionRate = recentCompletionRate(today)
@@ -185,6 +194,32 @@ class QuestGenerationService(
         return completed.toFloat() / total.toFloat()
     }
 
+    private suspend fun resolveModules(onboardingDone: Boolean): EnabledModules =
+        ModuleFlags.resolve(
+            onboardingDone = onboardingDone,
+            career = db.configDao().get(ModuleFlags.KEY_CAREER)?.value,
+            workout = db.configDao().get(ModuleFlags.KEY_WORKOUT)?.value,
+            diet = db.configDao().get(ModuleFlags.KEY_DIET)?.value,
+        )
+
+    private fun filterByModules(
+        templates: List<com.example.solo_levelling.data.db.entity.QuestTemplateEntity>,
+        modules: EnabledModules,
+    ): List<com.example.solo_levelling.data.db.entity.QuestTemplateEntity> =
+        templates.filter { template ->
+            val tags = template.priorityTags.split(",").map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+            val moduleTags = tags.filter { it.startsWith("module_") }
+            if (moduleTags.isEmpty()) return@filter true
+            moduleTags.any { tag ->
+                when (tag) {
+                    "module_career" -> modules.career
+                    "module_workout" -> modules.workout
+                    "module_diet" -> modules.diet
+                    else -> true
+                }
+            }
+        }
+
     private fun filterByPriority(
         templates: List<com.example.solo_levelling.data.db.entity.QuestTemplateEntity>,
         priorities: List<String>,
@@ -192,7 +227,10 @@ class QuestGenerationService(
         if (priorities.isEmpty()) return templates
         return templates.filter { template ->
             if (template.priorityTags.isBlank()) return@filter true
-            val tags = template.priorityTags.split(",").map { it.trim().lowercase() }
+            val tags = template.priorityTags.split(",")
+                .map { it.trim().lowercase() }
+                .filter { it.isNotEmpty() && !it.startsWith("module_") }
+            if (tags.isEmpty()) return@filter true
             tags.any { it in priorities }
         }
     }

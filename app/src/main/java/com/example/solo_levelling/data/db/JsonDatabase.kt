@@ -35,6 +35,7 @@ import com.example.solo_levelling.data.db.entity.SeasonEntity
 import com.example.solo_levelling.data.db.entity.SkillEntity
 import com.example.solo_levelling.data.db.entity.StreakStateEntity
 import com.example.solo_levelling.data.db.entity.SyncOutboxEntity
+import com.example.solo_levelling.data.db.entity.SystemDesignTopicEntity
 import com.example.solo_levelling.data.db.entity.UserConfigEntity
 import com.example.solo_levelling.data.db.entity.WorkoutEntity
 import com.example.solo_levelling.data.db.entity.WorkoutExerciseEntity
@@ -90,6 +91,7 @@ class JsonDatabase(private val rootDir: File) {
     private var metrics = mutableListOf<MetricLogEntity>()
     private var routines = mutableListOf<RoutineLogEntity>()
     private var dsa = mutableListOf<DsaProblemEntity>()
+    private var systemDesignTopics = mutableListOf<SystemDesignTopicEntity>()
 
     private val profileFlow = MutableStateFlow<PlayerProfileEntity?>(null)
     private val attributesFlow = MutableStateFlow<List<AttributeStatEntity>>(emptyList())
@@ -102,6 +104,7 @@ class JsonDatabase(private val rootDir: File) {
     private val bossesFlow = MutableStateFlow<List<BossEntity>>(emptyList())
     private val skillsFlow = MutableStateFlow<List<SkillEntity>>(emptyList())
     private val dsaFlow = MutableStateFlow<List<DsaProblemEntity>>(emptyList())
+    private val systemDesignTopicsFlow = MutableStateFlow<List<SystemDesignTopicEntity>>(emptyList())
     private val workoutsFlow = MutableStateFlow<List<WorkoutLogEntity>>(emptyList())
     private val workoutRoutineFlow = MutableStateFlow(WorkoutRoutineEntity())
     private val dietLogsFlow = MutableStateFlow<List<DietLogEntity>>(emptyList())
@@ -184,6 +187,7 @@ class JsonDatabase(private val rootDir: File) {
         metrics.clear()
         routines.clear()
         dsa.clear()
+        systemDesignTopics.clear()
         io.clearTasks()
         io.clearDir(JsonFileIO.WORKOUTS_LOGS_DIR)
         io.clearDir(JsonFileIO.DIET_LOGS_DIR)
@@ -239,6 +243,7 @@ class JsonDatabase(private val rootDir: File) {
         metrics = readList(FILE_METRICS)
         routines = readList(FILE_ROUTINES)
         dsa = readList(FILE_DSA)
+        systemDesignTopics = readList(FILE_SYSTEM_DESIGN_TOPICS)
         questInstances = io.listTasks().mapNotNull { file ->
             runCatching {
                 gson.fromJson(file.readText(), QuestInstanceEntity::class.java)
@@ -373,6 +378,7 @@ class JsonDatabase(private val rootDir: File) {
         io.writeText(FILE_METRICS, gson.toJson(metrics))
         io.writeText(FILE_ROUTINES, gson.toJson(routines))
         io.writeText(FILE_DSA, gson.toJson(dsa))
+        io.writeText(FILE_SYSTEM_DESIGN_TOPICS, gson.toJson(systemDesignTopics))
         persistTasks()
     }
 
@@ -427,6 +433,7 @@ class JsonDatabase(private val rootDir: File) {
         bossesFlow.value = bosses.sortedByDescending { it.id }
         skillsFlow.value = skills.sortedWith(compareBy({ it.domain }, { it.name }))
         dsaFlow.value = dsa.sortedByDescending { it.id }
+        systemDesignTopicsFlow.value = systemDesignTopics.sortedBy { it.orderIndex }
         workoutRoutineFlow.value = workoutRoutine
         emitWorkoutFlows()
         emitDietFlows()
@@ -1223,6 +1230,29 @@ class JsonDatabase(private val rootDir: File) {
             bossQuestFlows.getOrPut(bossId) {
                 MutableStateFlow(bossQuests.filter { it.bossId == bossId })
             }
+
+        override fun observeSystemDesignTopics(): Flow<List<SystemDesignTopicEntity>> = systemDesignTopicsFlow
+
+        override suspend fun getSystemDesignTopics(): List<SystemDesignTopicEntity> = withWriteLock {
+            systemDesignTopics.sortedBy { it.orderIndex }
+        }
+
+        override suspend fun upsertSystemDesignTopic(topic: SystemDesignTopicEntity) = withWriteLock {
+            val idx = systemDesignTopics.indexOfFirst { it.id == topic.id }
+            if (idx >= 0) systemDesignTopics[idx] = topic else systemDesignTopics.add(topic)
+            io.writeText(FILE_SYSTEM_DESIGN_TOPICS, gson.toJson(systemDesignTopics))
+            systemDesignTopicsFlow.value = systemDesignTopics.sortedBy { it.orderIndex }
+        }
+
+        override suspend fun replaceSystemDesignTopics(topics: List<SystemDesignTopicEntity>) = withWriteLock {
+            systemDesignTopics = topics.toMutableList()
+            io.writeText(FILE_SYSTEM_DESIGN_TOPICS, gson.toJson(systemDesignTopics))
+            systemDesignTopicsFlow.value = systemDesignTopics.sortedBy { it.orderIndex }
+        }
+
+        override suspend fun getDsaProblems(): List<DsaProblemEntity> = withWriteLock {
+            dsa.sortedByDescending { it.id }
+        }
     }
 
     companion object {
@@ -1246,5 +1276,6 @@ class JsonDatabase(private val rootDir: File) {
         private const val FILE_METRICS = "metrics.json"
         private const val FILE_ROUTINES = "routines.json"
         private const val FILE_DSA = "dsa.json"
+        private const val FILE_SYSTEM_DESIGN_TOPICS = "career/system-design/topics.json"
     }
 }

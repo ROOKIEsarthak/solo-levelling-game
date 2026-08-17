@@ -19,6 +19,7 @@ import com.example.solo_levelling.data.db.entity.QuestTemplateEntity
 import com.example.solo_levelling.data.db.entity.RoutineLogEntity
 import com.example.solo_levelling.data.db.entity.SeasonEntity
 import com.example.solo_levelling.data.db.entity.SkillEntity
+import com.example.solo_levelling.data.db.entity.SystemDesignTopicEntity
 import com.example.solo_levelling.data.db.entity.StreakStateEntity
 import com.example.solo_levelling.data.db.entity.SyncOutboxEntity
 import com.example.solo_levelling.data.db.entity.UserConfigEntity
@@ -269,4 +270,14 @@ interface ModuleDao {
     suspend fun getNutrition(date: String): NutritionLogEntity?
 
     fun observeBossQuests(bossId: Long): Flow<List<BossQuestEntity>>
+
+    fun observeSystemDesignTopics(): Flow<List<SystemDesignTopicEntity>>
+
+    suspend fun getSystemDesignTopics(): List<SystemDesignTopicEntity>
+
+    suspend fun upsertSystemDesignTopic(topic: SystemDesignTopicEntity)
+
+    suspend fun replaceSystemDesignTopics(topics: List<SystemDesignTopicEntity>)
+
+    suspend fun getDsaProblems(): List<DsaProblemEntity>
 }

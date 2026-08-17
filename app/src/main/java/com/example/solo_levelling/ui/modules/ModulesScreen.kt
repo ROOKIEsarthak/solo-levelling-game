@@ -1,5 +1,6 @@
 package com.example.solo_levelling.ui.modules
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,7 +12,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -25,17 +28,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.data.db.entity.CareerNodeEntity
+import com.example.solo_levelling.domain.service.EntryValidation
 import com.example.solo_levelling.data.db.entity.DsaProblemEntity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
-fun ModulesScreen(container: AppContainer) {
+fun ModulesScreen(
+    container: AppContainer,
+    onMessage: (String) -> Unit = {},
+) {
     val vm: ModulesViewModel = viewModel(factory = ModulesViewModel.factory(container))
     val dsa by vm.dsa.collectAsStateWithLifecycle()
     val bosses by vm.bosses.collectAsStateWithLifecycle()
@@ -84,10 +92,18 @@ fun ModulesScreen(container: AppContainer) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Life Modules", style = MaterialTheme.typography.headlineSmall)
+        Text("Life Modules", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(
+            "Focus, journal, metrics, and extras. DSA & System Design live under Career.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+        )
 
         CareerSection(careerNodes) { id ->
-            scope.launch { container.modules.advanceCareerNode(id) }
+            scope.launch {
+                container.modules.advanceCareerNode(id)
+                onMessage("Node advanced · +50 XP")
+            }
         }
 
         DsaSection(
@@ -100,20 +116,26 @@ fun ModulesScreen(container: AppContainer) {
             onTopicChange = { dsaTopic = it },
             onAdd = {
                 scope.launch {
-                    if (dsaTitle.isNotBlank()) {
-                        container.modules.addDsaProblem(dsaTitle, dsaDifficulty, dsaTopic)
-                        dsaTitle = ""
+                    EntryValidation.firstError(
+                        EntryValidation.requireNonBlank(dsaTitle, "title"),
+                        EntryValidation.requireNonBlank(dsaTopic, "topic"),
+                    )?.let {
+                        onMessage(it)
+                        return@launch
                     }
+                    val difficulty = dsaDifficulty.ifBlank { "MEDIUM" }
+                    container.modules.addDsaProblem(dsaTitle.trim(), difficulty, dsaTopic.trim())
+                    dsaTitle = ""
+                    dsaTopic = ""
+                    onMessage("Problem added")
                 }
             },
-            onAttempt = { scope.launch { container.modules.markAttempted(it) } },
-            onSolve = { scope.launch { container.modules.solveDsa(it) } },
-            onMaster = { scope.launch { container.modules.masterDsa(it) } },
+            onAttempt = { scope.launch { container.modules.markAttempted(it); onMessage("Attempted") } },
+            onSolve = { scope.launch { container.modules.solveDsa(it); onMessage("Solved") } },
+            onMaster = { scope.launch { container.modules.masterDsa(it); onMessage("Mastered") } },
         )
 
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Focus", style = MaterialTheme.typography.titleMedium)
+        ModuleCard(title = "Focus") {
                 OutlinedTextField(focusMinutes, { focusMinutes = it }, label = { Text("Minutes") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(focusLabel, { focusLabel = it }, label = { Text("Label") }, modifier = Modifier.fillMaxWidth())
                 if (timerRunning) {
@@ -121,75 +143,92 @@ fun ModulesScreen(container: AppContainer) {
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = {
-                        val mins = focusMinutes.toIntOrNull()?.coerceAtLeast(1) ?: return@Button
+                        EntryValidation.requirePositiveInt(focusMinutes, "minutes")?.let {
+                            onMessage(it)
+                            return@Button
+                        }
+                        val mins = focusMinutes.trim().toInt()
                         secondsLeft = mins * 60
                         timerRunning = true
                     }, enabled = !timerRunning) { Text("Start timer") }
                     OutlinedButton(onClick = {
                         scope.launch {
-                            val mins = focusMinutes.toIntOrNull()?.coerceAtLeast(1) ?: return@launch
+                            EntryValidation.requirePositiveInt(focusMinutes, "minutes")?.let {
+                                onMessage(it)
+                                return@launch
+                            }
+                            val mins = focusMinutes.trim().toInt()
                             container.modules.logFocus(mins, focusLabel.ifBlank { "Focus" })
+                            onMessage("Logged $mins focus minutes")
                         }
                     }) { Text("Log now") }
                 }
                 val focusTotal = focusToday.sumOf { it.durationMinutes }
                 if (focusTotal > 0) Text("Today: ${focusTotal}m focus logged")
-            }
         }
 
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Steps", style = MaterialTheme.typography.titleMedium)
+        ModuleCard(title = "Steps") {
                 OutlinedTextField(steps, { steps = it }, label = { Text("Steps") }, modifier = Modifier.fillMaxWidth())
                 Button(onClick = {
                     scope.launch {
-                        val value = steps.toFloatOrNull() ?: return@launch
+                        EntryValidation.requirePositiveFloat(steps, "steps")?.let {
+                            onMessage(it)
+                            return@launch
+                        }
+                        val value = steps.trim().toFloat()
                         container.metricIngest.ingest("STEPS", value)
                         steps = ""
+                        onMessage("Steps logged")
                     }
                 }) { Text("Log steps") }
                 val todaySteps = recentMetrics.filter { it.metricType == "STEPS" }.firstOrNull()
                 todaySteps?.let { Text("Latest: ${it.value.toInt()} steps") }
-            }
         }
 
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Weight", style = MaterialTheme.typography.titleMedium)
+        ModuleCard(title = "Weight") {
                 OutlinedTextField(weight, { weight = it }, label = { Text("Weight (kg)") }, modifier = Modifier.fillMaxWidth())
                 Button(onClick = {
                     scope.launch {
-                        val value = weight.toFloatOrNull() ?: return@launch
+                        EntryValidation.requirePositiveFloat(weight, "weight")?.let {
+                            onMessage(it)
+                            return@launch
+                        }
+                        val value = weight.trim().toFloat()
                         container.metricIngest.ingest("WEIGHT", value)
                         weight = ""
+                        onMessage("Weight logged")
                     }
                 }) { Text("Log weight") }
                 val latestWeight = recentMetrics.filter { it.metricType == "WEIGHT" }.firstOrNull()
                 latestWeight?.let { Text("Latest: ${it.value} kg") }
-            }
         }
 
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Journal", style = MaterialTheme.typography.titleMedium)
+        ModuleCard(title = "Journal") {
                 OutlinedTextField(
                     value = journal,
                     onValueChange = { journal = it },
-                    label = { Text("Reflection") },
+                    label = { Text("Today's entry") },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 3,
                 )
                 Button(onClick = {
                     scope.launch {
-                        if (journal.isNotBlank()) container.modules.saveJournal(journal)
+                        EntryValidation.requireNonBlank(journal, "journal entry")?.let {
+                            onMessage(it)
+                            return@launch
+                        }
+                        container.modules.saveJournal(journal.trim())
+                        onMessage("Journal saved · +10 XP")
                     }
                 }) { Text("Save journal") }
-            }
         }
 
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Routines", style = MaterialTheme.typography.titleMedium)
+        ModuleCard(title = "Routines") {
+                val colors = MaterialTheme.colorScheme
+                val chipColors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = colors.primary.copy(alpha = 0.15f),
+                    selectedLabelColor = colors.primary,
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -199,46 +238,58 @@ fun ModulesScreen(container: AppContainer) {
                             selected = kind in loggedRoutineKinds,
                             onClick = { scope.launch { container.modules.logRoutine(kind) } },
                             label = { Text(kind.lowercase().replaceFirstChar { it.uppercase() }) },
+                            colors = chipColors,
                         )
                     }
                 }
                 if (routinesToday.isNotEmpty()) {
                     Text("Logged today: ${routinesToday.joinToString { it.kind }}")
                 }
-            }
         }
 
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Boss Quests", style = MaterialTheme.typography.titleMedium)
+        ModuleCard(title = "Boss Quests") {
                 OutlinedTextField(
                     value = bossTitle,
                     onValueChange = { bossTitle = it },
-                    label = { Text("Boss title") },
+                    label = { Text("New boss") },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Button(onClick = {
                     scope.launch {
-                        if (bossTitle.isNotBlank()) {
-                            container.modules.createBoss(bossTitle, "Major objective", 200)
-                            bossTitle = ""
+                        if (bossTitle.isBlank()) {
+                            onMessage("Boss needs a title")
+                            return@launch
                         }
+                        container.modules.createBoss(bossTitle, "Major objective", 200)
+                        bossTitle = ""
+                        onMessage("Boss created")
                     }
                 }) { Text("Create boss") }
-                bosses.filter { it.status == "ACTIVE" }.forEach { b ->
+                val active = bosses.filter { it.status == "ACTIVE" }
+                if (active.isEmpty()) {
+                    Text("No active boss", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                active.forEach { b ->
                     Text("${b.title}: ${b.currentValue}/${b.targetValue}")
-                    Button(onClick = { scope.launch { container.modules.addBossProgress(25f) } }) {
+                    Button(onClick = {
+                        scope.launch {
+                            container.modules.addBossProgress(25f)
+                            onMessage("Boss progress +25%")
+                        }
+                    }) {
                         Text("+25% progress")
                     }
                 }
-            }
         }
 
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Skills", style = MaterialTheme.typography.titleMedium)
+        ModuleCard(title = "Skills") {
                 val domains = skills.map { it.domain }.distinct().sorted()
                 var domainFilter by remember { mutableStateOf<String?>(null) }
+                val colors = MaterialTheme.colorScheme
+                val chipColors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = colors.primary.copy(alpha = 0.15f),
+                    selectedLabelColor = colors.primary,
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -247,12 +298,14 @@ fun ModulesScreen(container: AppContainer) {
                         selected = domainFilter == null,
                         onClick = { domainFilter = null },
                         label = { Text("All") },
+                        colors = chipColors,
                     )
                     domains.forEach { domain ->
                         FilterChip(
                             selected = domainFilter == domain,
                             onClick = { domainFilter = domain },
                             label = { Text(domain) },
+                            colors = chipColors,
                         )
                     }
                 }
@@ -264,16 +317,31 @@ fun ModulesScreen(container: AppContainer) {
                     }
                 }
                 if (skills.isEmpty()) Text("Skills unlock from DSA and career progress.")
-            }
+        }
+    }
+}
+
+@Composable
+private fun ModuleCard(
+    title: String,
+    content: @Composable () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
+        border = BorderStroke(1.dp, colors.outline),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            content()
         }
     }
 }
 
 @Composable
 private fun CareerSection(nodes: List<CareerNodeEntity>, onAdvance: (Long) -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Career", style = MaterialTheme.typography.titleMedium)
+    ModuleCard(title = "Career") {
             nodes.groupBy { it.track }.forEach { (track, trackNodes) ->
                 Text(track, style = MaterialTheme.typography.titleSmall)
                 trackNodes.sortedBy { it.orderIndex }.forEach { node ->
@@ -289,11 +357,12 @@ private fun CareerSection(nodes: List<CareerNodeEntity>, onAdvance: (Long) -> Un
                             OutlinedButton(onClick = { onAdvance(node.id) }) {
                                 Text("Advance")
                             }
+                        } else {
+                            Text("CLEARED", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
-        }
     }
 }
 
@@ -311,10 +380,8 @@ private fun DsaSection(
     onSolve: (Long) -> Unit,
     onMaster: (Long) -> Unit,
 ) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("DSA", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(title, onTitleChange, label = { Text("Title") }, modifier = Modifier.fillMaxWidth())
+    ModuleCard(title = "DSA") {
+            OutlinedTextField(title, onTitleChange, label = { Text("Problem") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(difficulty, onDifficultyChange, label = { Text("Difficulty") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(topic, onTopicChange, label = { Text("Topic") }, modifier = Modifier.fillMaxWidth())
             Button(onClick = onAdd) { Text("Add problem") }
@@ -332,6 +399,5 @@ private fun DsaSection(
                     }
                 }
             }
-        }
     }
 }

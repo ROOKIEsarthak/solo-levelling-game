@@ -217,4 +217,44 @@ class ModuleServiceTest {
         assertEquals("Leg Day", day.name)
         assertEquals("Squat", day.exercises.first().name)
     }
+
+    @Test
+    fun n_addMeal_emptyFoods_doesNotAwardNutritionXp() = runTest {
+        seedProfile()
+        service.addMeal("2026-08-17", "Empty")
+        assertEquals(0, db.playerDao().getProfile(1)!!.totalXp)
+        assertTrue(
+            progression.award("NUTRITION", "nutrition_2026-08-17", 15) is AwardResult.Success,
+        )
+    }
+
+    @Test
+    fun p_upsertFood_awardsNutritionXp() = runTest {
+        seedProfile()
+        val mealId = service.addMeal("2026-08-17", "Breakfast")
+        service.upsertFood(
+            "2026-08-17",
+            mealId,
+            FoodItemEntity(name = "Oats", quantity = 60f, unit = "g", calories = 228, protein = 8),
+        )
+        assertTrue(
+            progression.award("NUTRITION", "nutrition_2026-08-17", 15) is AwardResult.AlreadyAwarded,
+        )
+    }
+
+    @Test
+    fun n_upsertWorkoutLog_noSets_doesNotAwardXp() = runTest {
+        seedProfile()
+        service.upsertWorkoutLog(
+            WorkoutLogEntity(
+                date = "2026-08-17",
+                workoutName = "Empty",
+                exercises = listOf(LoggedExerciseEntity(name = "Squat")),
+            ),
+        )
+        assertEquals(0, db.playerDao().getProfile(1)!!.totalXp)
+        assertTrue(
+            progression.award("WORKOUT", "workout_2026-08-17", 40) is AwardResult.Success,
+        )
+    }
 }
