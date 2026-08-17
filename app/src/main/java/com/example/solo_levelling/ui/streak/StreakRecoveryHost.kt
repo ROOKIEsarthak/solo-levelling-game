@@ -1,18 +1,22 @@
 package com.example.solo_levelling.ui.streak
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -28,8 +32,20 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.domain.copy.SystemMessages
-import com.example.solo_levelling.ui.theme.GlowCyan
+import com.example.solo_levelling.ui.components.BracketLabel
+import com.example.solo_levelling.ui.components.CyberProgressBar
+import com.example.solo_levelling.ui.components.GlassLevel
+import com.example.solo_levelling.ui.components.GlassSurface
+import com.example.solo_levelling.ui.components.GhostTextButton
+import com.example.solo_levelling.ui.components.SystemActionButton
+import com.example.solo_levelling.ui.components.SystemSectionHeader
+import com.example.solo_levelling.ui.theme.JetBrainsMono
 import com.example.solo_levelling.ui.theme.SystemBackground
+import com.example.solo_levelling.ui.theme.SystemPrimary
+import com.example.solo_levelling.ui.theme.SystemSecondary
+import com.example.solo_levelling.ui.theme.SystemTertiary
+
+private enum class RecoveryPhase { Reflect, Diagnostics, Reinit }
 
 @Composable
 fun StreakRecoveryHost(
@@ -40,9 +56,10 @@ fun StreakRecoveryHost(
     val pending by vm.pending.collectAsStateWithLifecycle()
     val event = pending ?: return
 
-    var step by remember(event.previousStreak) { mutableStateOf(0) }
+    var phase by remember(event.previousStreak) { mutableIntStateOf(RecoveryPhase.Reflect.ordinal) }
     var answer by remember(event.previousStreak) { mutableStateOf("") }
     val colors = MaterialTheme.colorScheme
+    val currentPhase = RecoveryPhase.entries[phase]
 
     Box(
         Modifier
@@ -50,110 +67,227 @@ fun StreakRecoveryHost(
             .background(SystemBackground.copy(alpha = 0.92f))
             .background(
                 Brush.radialGradient(
-                    colors = listOf(GlowCyan.copy(alpha = 0.12f), Color.Transparent),
+                    colors = listOf(SystemSecondary.copy(alpha = 0.18f), Color.Transparent),
                 ),
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            Modifier
+        GlassSurface(
+            modifier = Modifier
                 .fillMaxWidth()
-                .padding(28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(24.dp),
+            level = GlassLevel.Level2,
+            borderAlpha = 0.25f,
+            cornerRadius = 16.dp,
         ) {
-            when (step) {
-                0 -> {
-                    Text(
-                        "STREAK LOST",
-                        color = colors.primary,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 4.sp,
-                        style = MaterialTheme.typography.labelLarge,
-                    )
-                    Text(
-                        "${event.previousStreak} DAYS",
-                        style = MaterialTheme.typography.displaySmall,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.onBackground,
-                    )
-                    Text(
-                        "CURRENT  0 DAYS",
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Text(
-                        "PREVIOUS BEST  ${event.best} DAYS",
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Button(onClick = { step = 1 }, modifier = Modifier.fillMaxWidth()) {
-                        Text("CONTINUE")
-                    }
-                }
-                1 -> {
-                    Text(
-                        "\"${SystemMessages.FALL_QUESTION}\"",
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    OutlinedTextField(
-                        value = answer,
-                        onValueChange = { answer = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Your answer...") },
-                        minLines = 2,
-                    )
-                    Button(
-                        onClick = { step = 2 },
-                        enabled = answer.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("ANSWER")
-                    }
-                }
-                2 -> {
-                    Text(
-                        "\"${SystemMessages.FALL_ANSWER}\"",
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        SystemMessages.FALL_ATTRIBUTION,
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Text(
-                        SystemMessages.pick(SystemMessages.Category.Recovery, event.previousStreak),
-                        textAlign = TextAlign.Center,
-                        color = colors.primary,
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    Text(
-                        "THE STREAK ENDED.\nYOUR PROGRESS DIDN'T.",
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Text(
-                        "TODAY'S MISSION\nComplete one objective.\nStart rebuilding.",
-                        textAlign = TextAlign.Center,
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Button(
-                        onClick = {
-                            vm.dismiss()
-                            onBeginAgain()
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SystemSectionHeader(
+                        tag = when (currentPhase) {
+                            RecoveryPhase.Reflect -> "[ REFLECT ]"
+                            RecoveryPhase.Diagnostics -> "[ DIAGNOSTICS ]"
+                            RecoveryPhase.Reinit -> "[ CONTINUE ]"
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("BEGIN AGAIN")
+                        accent = SystemSecondary,
+                    )
+                    Text(
+                        text = "PHASE ${phase + 1}/3",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = JetBrainsMono,
+                        color = colors.onSurfaceVariant,
+                        letterSpacing = 2.sp,
+                    )
+                }
+                CyberProgressBar(progress = (phase + 1) / 3f)
+
+                when (currentPhase) {
+                    RecoveryPhase.Reflect -> {
+                        Text(
+                            text = "The path is not always linear.",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                        )
+                        Text(
+                            text = "Systems experience entropy. True sovereignty is found in the recovery, not the perfection.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colors.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        Text(
+                            text = "\"${SystemMessages.FALL_QUESTION}\"",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                        OutlinedTextField(
+                            value = answer,
+                            onValueChange = { answer = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = {
+                                Text("Your answer...", color = colors.onSurfaceVariant.copy(alpha = 0.6f))
+                            },
+                            minLines = 2,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = SystemSecondary,
+                                unfocusedBorderColor = SystemSecondary.copy(alpha = 0.4f),
+                                cursorColor = SystemSecondary,
+                            ),
+                        )
+                        SystemActionButton(
+                            label = "ENGAGE",
+                            onClick = { phase = RecoveryPhase.Diagnostics.ordinal },
+                            enabled = answer.isNotBlank(),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    RecoveryPhase.Diagnostics -> {
+                        BracketLabel(text = "SYSTEM DIAGNOSTICS", color = SystemSecondary)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            DiagnosticStat(
+                                label = "PREVIOUS STREAK",
+                                value = "${event.previousStreak}d",
+                                modifier = Modifier.weight(1f),
+                            )
+                            DiagnosticStat(
+                                label = "PREVIOUS BEST",
+                                value = "${event.best}d",
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        GlassSurface(level = GlassLevel.Level1) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = "CURRENT  0 DAYS",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontFamily = JetBrainsMono,
+                                    color = colors.onSurfaceVariant,
+                                )
+                                Text(
+                                    text = "Memory core intact. Progress preserved.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = colors.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                val retention = if (event.best > 0) {
+                                    (event.previousStreak.toFloat() / event.best).coerceIn(0f, 1f)
+                                } else {
+                                    1f
+                                }
+                                CyberProgressBar(progress = retention)
+                            }
+                        }
+                        Text(
+                            text = SystemMessages.pick(SystemMessages.Category.Recovery, event.previousStreak),
+                            textAlign = TextAlign.Center,
+                            color = SystemPrimary,
+                            fontFamily = JetBrainsMono,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            GhostTextButton(
+                                label = "ABORT",
+                                onClick = { phase = RecoveryPhase.Reflect.ordinal },
+                                modifier = Modifier.weight(1f),
+                            )
+                            SystemActionButton(
+                                label = "ACKNOWLEDGE",
+                                onClick = { phase = RecoveryPhase.Reinit.ordinal },
+                                modifier = Modifier.weight(1f),
+                                primary = false,
+                            )
+                        }
+                    }
+                    RecoveryPhase.Reinit -> {
+                        Text(
+                            text = "System Reinitialized.",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                        )
+                        Text(
+                            text = "\"${SystemMessages.FALL_ANSWER}\"",
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = SystemMessages.FALL_ATTRIBUTION,
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                            textAlign = TextAlign.Center,
+                        )
+                        Text(
+                            text = "THE STREAK ENDED.\nYOUR PROGRESS DIDN'T.",
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = JetBrainsMono,
+                        )
+                        Text(
+                            text = "TODAY'S MISSION — Complete one objective. Start rebuilding.",
+                            textAlign = TextAlign.Center,
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        SystemActionButton(
+                            label = "BEGIN AGAIN",
+                            onClick = {
+                                vm.dismiss()
+                                onBeginAgain()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticStat(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    GlassSurface(
+        modifier = modifier,
+        level = GlassLevel.Level1,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = JetBrainsMono,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.headlineMedium,
+                fontFamily = JetBrainsMono,
+                fontWeight = FontWeight.Bold,
+                color = SystemPrimary,
+            )
         }
     }
 }

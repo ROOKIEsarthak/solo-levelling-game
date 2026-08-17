@@ -1,24 +1,21 @@
 package com.example.solo_levelling.ui.fitness
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -27,7 +24,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
@@ -66,6 +62,20 @@ import com.example.solo_levelling.domain.service.EntryValidation
 import com.example.solo_levelling.domain.service.FoodMacroScaler
 import com.example.solo_levelling.domain.service.WorkoutProgressLogic
 import com.example.solo_levelling.domain.service.WorkoutSplitLogic
+import com.example.solo_levelling.ui.components.BracketLabel
+import com.example.solo_levelling.ui.components.CyberProgressBar
+import com.example.solo_levelling.ui.components.EnergyFieldBackground
+import com.example.solo_levelling.ui.components.GlassLevel
+import com.example.solo_levelling.ui.components.GlassSurface
+import com.example.solo_levelling.ui.components.SovereignChip
+import com.example.solo_levelling.ui.components.SystemActionButton
+import com.example.solo_levelling.ui.components.SystemIdleEmpty
+import com.example.solo_levelling.ui.components.SystemSectionHeader
+import com.example.solo_levelling.ui.components.progressFraction
+import com.example.solo_levelling.ui.theme.JetBrainsMono
+import com.example.solo_levelling.ui.theme.Spacing
+import com.example.solo_levelling.ui.theme.SystemPrimary
+import com.example.solo_levelling.ui.theme.SystemSecondary
 import java.time.LocalDate
 import kotlinx.coroutines.launch
 
@@ -107,24 +117,25 @@ fun FitnessScreen(
     val workoutDate = (selectedWorkoutDate ?: todayDate).ifBlank { todayDate }
     val dietDate = (selectedDietDate ?: todayDate).ifBlank { todayDate }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(
-            when (tab) {
-                FitnessTab.Workout -> "Workout"
-                FitnessTab.Diet -> "Nutrition"
-                FitnessTab.Both -> "Fitness"
-            },
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-        )
+    Box(Modifier.fillMaxSize()) {
+        EnergyFieldBackground(Modifier.fillMaxSize())
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(Spacing.screen),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            SystemSectionHeader(
+                tag = when (tab) {
+                    FitnessTab.Workout -> "TODAY'S TRAINING"
+                    FitnessTab.Diet -> "TODAY'S FUEL"
+                    FitnessTab.Both -> "FITNESS SYSTEM"
+                },
+                accent = SystemPrimary,
+            )
 
-        if (tab == FitnessTab.Workout || tab == FitnessTab.Both) {
+            if (tab == FitnessTab.Workout || tab == FitnessTab.Both) {
             FitnessSection(
                 routine = workoutRoutine,
                 todaySummary = workoutLogToday,
@@ -277,6 +288,48 @@ fun FitnessScreen(
                 },
             )
         }
+
+            Spacer(Modifier.height(Spacing.xs))
+        }
+    }
+}
+
+@Composable
+private fun BiometricPanel(label: String, value: String, modifier: Modifier = Modifier) {
+    GlassSurface(modifier = modifier, level = GlassLevel.Level1, cornerRadius = 8.dp) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            BracketLabel(text = label, color = SystemSecondary)
+            Text(
+                value,
+                fontFamily = JetBrainsMono,
+                fontWeight = FontWeight.Bold,
+                color = SystemPrimary,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
+}
+
+@Composable
+private fun MacroGlassCard(label: String, current: Int, target: Int, unit: String, modifier: Modifier = Modifier) {
+    GlassSurface(modifier = modifier, level = GlassLevel.Level1, cornerRadius = 10.dp) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            BracketLabel(text = label, color = SystemPrimary)
+            Text(
+                "$current",
+                fontFamily = JetBrainsMono,
+                fontWeight = FontWeight.Bold,
+                color = SystemPrimary,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            CyberProgressBar(progress = progressFraction(current.toFloat(), target.toFloat()), height = 6.dp)
+            Text(
+                "/ $target $unit",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = JetBrainsMono,
+            )
+        }
     }
 }
 
@@ -286,21 +339,33 @@ private fun DateStrip(
     onPrev: () -> Unit,
     onNext: () -> Unit,
 ) {
-    val colors = MaterialTheme.colorScheme
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(colors.secondaryContainer, RoundedCornerShape(8.dp))
-            .padding(horizontal = 4.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = onPrev) {
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous day")
-        }
-        Text(label, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-        IconButton(onClick = onNext) {
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next day")
+    GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1, cornerRadius = 8.dp) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onPrev) {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    contentDescription = "Previous day",
+                    tint = SystemPrimary,
+                )
+            }
+            Text(
+                label,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = JetBrainsMono,
+                color = SystemPrimary,
+            )
+            IconButton(onClick = onNext) {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = "Next day",
+                    tint = SystemPrimary,
+                )
+            }
         }
     }
 }
@@ -375,36 +440,68 @@ private fun FitnessSection(
         }
     }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
-        border = BorderStroke(1.dp, colors.outline),
-    ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Fitness", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("Today", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            if (todaySummary == null) {
-                Text(
-                    "YOUR SYSTEM IS READY.\nNo workout has been logged yet.\nYour first session starts here.",
-                    color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            } else {
-                Text(
-                    "Workout\n${todaySummary.workoutName}\n" +
-                        "${todaySummary.exercises.size} exercises · " +
-                        "${todaySummary.exercises.sumOf { it.sets.size }} sets",
-                )
+    GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SystemSectionHeader(tag = "TODAY'S TRAINING", accent = SystemPrimary)
+
+            GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level2, borderAlpha = 0.35f) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (todaySummary == null) {
+                        Text(
+                            "YOUR SYSTEM IS READY.\nNo workout has been logged yet.\nYour first session starts here.",
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    } else {
+                        Text(
+                            todaySummary.workoutName,
+                            fontWeight = FontWeight.Bold,
+                            color = SystemPrimary,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "${todaySummary.exercises.size} exercises · " +
+                                "${todaySummary.exercises.sumOf { it.sets.size }} sets",
+                            fontFamily = JetBrainsMono,
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    nutritionToday?.let {
+                        Text("Diet tip: $it", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    }
+                    SystemActionButton(
+                        label = if (splitLocked) "SPLIT LOCKED — USE START WORKOUT" else "START SAME WORKOUT",
+                        onClick = onRepeatLast,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !splitLocked,
+                        primary = false,
+                    )
+                }
             }
-            nutritionToday?.let {
-                Text("Diet tip: $it", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-            }
-            OutlinedButton(
-                onClick = onRepeatLast,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                enabled = !splitLocked,
-            ) {
-                Text(if (splitLocked) "SPLIT LOCKED — USE START WORKOUT" else "START SAME WORKOUT")
+
+            if (heightCm.isNotBlank() || weightKg.isNotBlank() || bmiEstimate.isNotBlank() || fitnessGoal.isNotBlank()) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (heightCm.isNotBlank()) {
+                        BiometricPanel(label = "HEIGHT", value = "${heightCm}cm", modifier = Modifier.weight(1f))
+                    }
+                    if (weightKg.isNotBlank()) {
+                        BiometricPanel(label = "WEIGHT", value = "${weightKg}kg", modifier = Modifier.weight(1f))
+                    }
+                    if (bmiEstimate.isNotBlank()) {
+                        BiometricPanel(label = "BMI", value = bmiEstimate, modifier = Modifier.weight(1f))
+                    }
+                    if (fitnessGoal.isNotBlank()) {
+                        BiometricPanel(
+                            label = "GOAL",
+                            value = fitnessGoal.replace('_', ' '),
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
             }
 
             Row(
@@ -412,38 +509,11 @@ private fun FitnessSection(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 listOf("Routine", "Log", "History").forEach { label ->
-                    FilterChip(
+                    SovereignChip(
+                        label = label,
                         selected = tab == label,
                         onClick = { tab = label },
-                        label = { Text(label) },
-                        colors = chipColors,
-                        border = BorderStroke(1.dp, if (tab == label) colors.primary else colors.outline),
                     )
-                }
-            }
-
-            when (tab) {
-                "Routine", "Log" -> {
-                    if (heightCm.isNotBlank() || weightKg.isNotBlank() || bmiEstimate.isNotBlank() || fitnessGoal.isNotBlank()) {
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .background(colors.surfaceContainerHigh, RoundedCornerShape(8.dp))
-                                .padding(8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            if (heightCm.isNotBlank()) Text("${heightCm}cm", style = MaterialTheme.typography.bodySmall)
-                            if (weightKg.isNotBlank()) Text("${weightKg}kg", style = MaterialTheme.typography.bodySmall)
-                            if (bmiEstimate.isNotBlank()) Text("BMI $bmiEstimate", style = MaterialTheme.typography.bodySmall)
-                            if (fitnessGoal.isNotBlank()) {
-                                Text(
-                                    fitnessGoal.replace('_', ' '),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                        }
-                    }
                 }
             }
 
@@ -503,7 +573,8 @@ private fun FitnessSection(
                     }?.let { err ->
                         Text(err, color = colors.error, style = MaterialTheme.typography.bodySmall)
                     }
-                    Button(
+                    SystemActionButton(
+                        label = if (splitLocked) "APPLY SPLIT" else "APPLY SPLIT & LOCK",
                         onClick = {
                             val mapError = WorkoutSplitLogic.buildRoutine(changeSplitId, splitDayMap).error
                             if (mapError != null) {
@@ -513,7 +584,7 @@ private fun FitnessSection(
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text(if (splitLocked) "Apply split" else "Apply split & lock") }
+                    )
                     Row(
                         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -550,13 +621,16 @@ private fun FitnessSection(
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = {
-                                onSaveDay(
-                                    dayKey,
-                                    dayPlan.copy(enabled = true, name = dayName.ifBlank { "Workout" }),
-                                )
-                            }) { Text("Save day") }
-                            OutlinedButton(onClick = { onRestDay(dayKey) }) { Text("Mark rest") }
+                            SystemActionButton(
+                                label = "SAVE DAY",
+                                onClick = {
+                                    onSaveDay(
+                                        dayKey,
+                                        dayPlan.copy(enabled = true, name = dayName.ifBlank { "Workout" }),
+                                    )
+                                },
+                            )
+                            SystemActionButton(label = "MARK REST", onClick = { onRestDay(dayKey) }, primary = false)
                         }
                         if (!dayPlan.enabled) {
                             Text("Currently marked rest — Save day or Add exercise to enable.")
@@ -566,9 +640,9 @@ private fun FitnessSection(
                                 "${ex.name} · ${ex.targetMuscle} · ${ex.sets}×${ex.repRange.min}-${ex.repRange.max}",
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                OutlinedButton(onClick = { onReorderPlanned(dayKey, ex.id, true) }) { Text("Up") }
-                                OutlinedButton(onClick = { onReorderPlanned(dayKey, ex.id, false) }) { Text("Down") }
-                                OutlinedButton(onClick = { onRemovePlanned(dayKey, ex.id) }) { Text("Remove") }
+                                SystemActionButton(label = "UP", onClick = { onReorderPlanned(dayKey, ex.id, true) }, primary = false)
+                                SystemActionButton(label = "DOWN", onClick = { onReorderPlanned(dayKey, ex.id, false) }, primary = false)
+                                SystemActionButton(label = "REMOVE", onClick = { onRemovePlanned(dayKey, ex.id) }, primary = false)
                             }
                         }
                         Text("Add exercise", style = MaterialTheme.typography.titleSmall)
@@ -577,47 +651,53 @@ private fun FitnessSection(
                         OutlinedTextField(planSets, { planSets = it }, label = { Text("Sets") }, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(planRepMin, { planRepMin = it }, label = { Text("Rep min") }, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(planRepMax, { planRepMax = it }, label = { Text("Rep max") }, modifier = Modifier.fillMaxWidth())
-                        Button(onClick = {
-                            EntryValidation.requireNonBlank(planName, "exercise name")?.let {
-                                onMessage(it)
-                                return@Button
-                            }
-                            EntryValidation.requirePositiveInt(planSets, "sets")?.let {
-                                onMessage(it)
-                                return@Button
-                            }
-                            EntryValidation.requirePositiveInt(planRepMin, "rep min")?.let {
-                                onMessage(it)
-                                return@Button
-                            }
-                            EntryValidation.requirePositiveInt(planRepMax, "rep max")?.let {
-                                onMessage(it)
-                                return@Button
-                            }
-                            onUpsertPlanned(
-                                dayKey,
-                                PlannedExerciseEntity(
-                                    name = planName.trim(),
-                                    targetMuscle = planMuscle.trim(),
-                                    sets = planSets.toInt(),
-                                    repRange = RepRangeEntity(
-                                        planRepMin.toInt(),
-                                        planRepMax.toInt(),
+                        SystemActionButton(
+                            label = "ADD EXERCISE",
+                            onClick = {
+                                EntryValidation.requireNonBlank(planName, "exercise name")?.let {
+                                    onMessage(it)
+                                    return@SystemActionButton
+                                }
+                                EntryValidation.requirePositiveInt(planSets, "sets")?.let {
+                                    onMessage(it)
+                                    return@SystemActionButton
+                                }
+                                EntryValidation.requirePositiveInt(planRepMin, "rep min")?.let {
+                                    onMessage(it)
+                                    return@SystemActionButton
+                                }
+                                EntryValidation.requirePositiveInt(planRepMax, "rep max")?.let {
+                                    onMessage(it)
+                                    return@SystemActionButton
+                                }
+                                onUpsertPlanned(
+                                    dayKey,
+                                    PlannedExerciseEntity(
+                                        name = planName.trim(),
+                                        targetMuscle = planMuscle.trim(),
+                                        sets = planSets.toInt(),
+                                        repRange = RepRangeEntity(
+                                            planRepMin.toInt(),
+                                            planRepMax.toInt(),
+                                        ),
                                     ),
-                                ),
-                                dayName,
-                            )
-                            planName = ""
-                            planMuscle = ""
-                        }) { Text("Add exercise") }
+                                    dayName,
+                                )
+                                planName = ""
+                                planMuscle = ""
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
 
                 "Log" -> {
                     DateStrip(label = workoutDate, onPrev = onPrevDate, onNext = onNextDate)
-                    Button(onClick = onStartLog, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-                        Text("START WORKOUT")
-                    }
+                    SystemActionButton(
+                        label = "START WORKOUT",
+                        onClick = onStartLog,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     val log = selectedLog
                     LaunchedEffect(log, tab, workoutDate) {
                         if (tab == "Log" && log != null) {
@@ -718,9 +798,12 @@ private fun FitnessSection(
                                     }
                                 },
                                 modifier = Modifier.height(48.dp),
-                            ) { Text("+ ADD SET") }
+                                border = BorderStroke(1.dp, SystemPrimary.copy(alpha = 0.5f)),
+                            ) {
+                                Text("+ ADD SET", fontFamily = JetBrainsMono, color = SystemPrimary)
+                            }
                             if (!splitLocked) {
-                                OutlinedButton(onClick = { onRemoveExercise(ex.id) }) { Text("Delete exercise") }
+                                SystemActionButton(label = "DELETE EXERCISE", onClick = { onRemoveExercise(ex.id) }, primary = false)
                             }
                         }
                         if (editingExerciseId != null) {
@@ -739,15 +822,16 @@ private fun FitnessSection(
                                     }
                                     Text(hint, color = colors.primary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
                                 }
-                                Button(
+                                SystemActionButton(
+                                    label = "SAVE SET",
                                     onClick = {
                                         EntryValidation.requirePositiveFloat(setWeight, "weight")?.let {
                                             onMessage(it)
-                                            return@Button
+                                            return@SystemActionButton
                                         }
                                         EntryValidation.requirePositiveInt(setReps, "reps")?.let {
                                             onMessage(it)
-                                            return@Button
+                                            return@SystemActionButton
                                         }
                                         val w = setWeight.toFloat()
                                         val r = setReps.toInt()
@@ -762,52 +846,46 @@ private fun FitnessSection(
                                         setRpe = ""
                                         editingExerciseId = null
                                     },
-                                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                                ) { Text("SAVE SET") }
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
                             }
                         }
                         if (!splitLocked) {
                             Text("Unplanned exercise", style = MaterialTheme.typography.titleSmall)
                             OutlinedTextField(exName, { exName = it }, label = { Text("Exercise") }, modifier = Modifier.fillMaxWidth())
-                            Button(onClick = {
-                                EntryValidation.requireNonBlank(exName, "exercise name")?.let {
-                                    onMessage(it)
-                                    return@Button
-                                }
-                                onUpsertExercise(LoggedExerciseEntity(name = exName.trim()))
-                                exName = ""
-                            }) { Text("Add") }
+                            SystemActionButton(
+                                label = "ADD",
+                                onClick = {
+                                    EntryValidation.requireNonBlank(exName, "exercise name")?.let {
+                                        onMessage(it)
+                                        return@SystemActionButton
+                                    }
+                                    onUpsertExercise(LoggedExerciseEntity(name = exName.trim()))
+                                    exName = ""
+                                },
+                            )
                         }
-                        Button(
+                        SystemActionButton(
+                            label = "FINISH WORKOUT",
                             onClick = {
                                 val sets = log.exercises.sumOf { it.sets.size }
                                 if (sets == 0) {
                                     onMessage("Log at least one set before finishing")
-                                    return@Button
+                                    return@SystemActionButton
                                 }
                                 onSaveLog(log.copy(workoutName = logName.ifBlank { log.workoutName }))
                                 logName = ""
                             },
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
-                        ) { Text("FINISH WORKOUT") }
-                        OutlinedButton(onClick = onDeleteLog) { Text("Delete") }
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        SystemActionButton(label = "DELETE", onClick = onDeleteLog, primary = false, modifier = Modifier.fillMaxWidth())
                     } else {
-                        Column(
-                            Modifier
-                                .fillMaxWidth()
-                                .background(colors.surfaceContainerHigh, RoundedCornerShape(8.dp))
-                                .padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text(
-                                "YOUR SYSTEM IS READY.\nNo workout has been logged yet.\nYour first session starts here.",
-                                color = colors.onSurfaceVariant,
-                            )
-                            Button(onClick = onStartLog, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-                                Text("START WORKOUT")
-                            }
-                        }
+                        SystemIdleEmpty(
+                            title = "SYSTEM READY",
+                            subtitle = "No workout has been logged yet.\nYour first session starts here.",
+                            actionLabel = "START WORKOUT",
+                            onAction = onStartLog,
+                        )
                     }
                 }
 
@@ -830,13 +908,16 @@ private fun FitnessSection(
                     }
                     Text("Compare exercise", style = MaterialTheme.typography.titleSmall)
                     OutlinedTextField(compareName, { compareName = it }, label = { Text("Exercise name") }, modifier = Modifier.fillMaxWidth())
-                    Button(onClick = {
-                        scope.launch {
-                            if (compareName.isNotBlank()) {
-                                compareHistory = loadExerciseHistory(compareName)
+                    SystemActionButton(
+                        label = "LOAD HISTORY",
+                        onClick = {
+                            scope.launch {
+                                if (compareName.isNotBlank()) {
+                                    compareHistory = loadExerciseHistory(compareName)
+                                }
                             }
-                        }
-                    }) { Text("Load history") }
+                        },
+                    )
                     compareHistory.forEachIndexed { index, (date, ex) ->
                         val label = if (index == 0) "Current" else "Previous"
                         Text("$label ($date)")
@@ -920,59 +1001,64 @@ private fun DietSection(
         clearFoodForm()
     }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
-        border = BorderStroke(1.dp, colors.outline),
-    ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Diet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("Today", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+    GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SystemSectionHeader(tag = "TODAY'S FUEL", accent = SystemPrimary)
+
             if (todayTotals != null) {
-                Text(
-                    "Calories: ${todayTotals.calories}\n" +
-                        "Protein: ${todayTotals.protein}g\n" +
-                        "Carbs: ${todayTotals.carbs}g\n" +
-                        "Fat: ${todayTotals.fat}g",
-                )
-            } else {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(colors.surfaceContainerHigh, RoundedCornerShape(8.dp))
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        "NO MEALS LOGGED.\nStart recording today's nutrition.",
-                        color = colors.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    )
-                    Button(onClick = { tab = "Log Food" }, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-                        Text("ADD FIRST MEAL")
+                GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level2, borderAlpha = 0.35f) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "${todayTotals.calories} / $calorieTarget kcal",
+                            fontFamily = JetBrainsMono,
+                            fontWeight = FontWeight.Bold,
+                            color = SystemPrimary,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        CyberProgressBar(
+                            progress = progressFraction(todayTotals.calories.toFloat(), calorieTarget.toFloat()),
+                        )
+                        Text(
+                            "Remaining ${(calorieTarget - todayTotals.calories).coerceAtLeast(0)} kcal",
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = JetBrainsMono,
+                        )
                     }
                 }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    MacroGlassCard("PRO", todayTotals.protein, proteinTarget, "g", Modifier.weight(1f))
+                    MacroGlassCard("CRB", todayTotals.carbs, carbTarget, "g", Modifier.weight(1f))
+                    MacroGlassCard("FAT", todayTotals.fat, fatTarget, "g", Modifier.weight(1f))
+                }
+            } else {
+                SystemIdleEmpty(
+                    title = "NO MEALS LOGGED",
+                    subtitle = "Start recording today's nutrition.",
+                    actionLabel = "ADD FIRST MEAL",
+                    onAction = { tab = "Log Food" },
+                )
             }
 
-            OutlinedButton(
+            SystemActionButton(
+                label = "REPEAT MEAL",
                 onClick = onRepeatMeal,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-            ) {
-                Text("REPEAT MEAL")
-            }
+                modifier = Modifier.fillMaxWidth(),
+                primary = false,
+            )
 
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 listOf("Log Food", "History").forEach { label ->
-                    FilterChip(
+                    SovereignChip(
+                        label = label,
                         selected = tab == label,
                         onClick = { tab = label },
-                        label = { Text(label) },
-                        colors = chipColors,
-                        border = BorderStroke(1.dp, if (tab == label) colors.primary else colors.outline),
                     )
                 }
             }
@@ -982,12 +1068,10 @@ private fun DietSection(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 listOf("Breakfast", "Lunch", "Dinner", "Snack", "Pre-workout", "Post-workout").forEach { preset ->
-                    FilterChip(
+                    SovereignChip(
+                        label = preset,
                         selected = mealName == preset,
                         onClick = { mealName = preset },
-                        label = { Text(preset) },
-                        colors = chipColors,
-                        border = BorderStroke(1.dp, if (mealName == preset) colors.primary else colors.outline),
                     )
                 }
             }
@@ -1003,6 +1087,7 @@ private fun DietSection(
                             "Remaining ${(calorieTarget - totals.calories).coerceAtLeast(0)} kcal",
                             color = colors.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall,
+                            fontFamily = JetBrainsMono,
                         )
                         MacroProgressRow("Protein", totals.protein, proteinTarget, "g")
                         MacroProgressRow("Carbs", totals.carbs, carbTarget, "g")
@@ -1020,19 +1105,23 @@ private fun DietSection(
                         placeholder = { Text("Pre-workout") },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Button(onClick = {
-                        EntryValidation.requireNonBlank(mealName, "meal name")?.let {
-                            onMessage(it)
-                            return@Button
-                        }
-                        val name = mealName.trim()
-                        mealName = ""
-                        onAddMeal(name) { mealId ->
-                            foodMealId = mealId
-                            foodEntryMode = "Catalog"
-                            clearFoodForm()
-                        }
-                    }) { Text("Add meal") }
+                    SystemActionButton(
+                        label = "LOG MEAL",
+                        onClick = {
+                            EntryValidation.requireNonBlank(mealName, "meal name")?.let {
+                                onMessage(it)
+                                return@SystemActionButton
+                            }
+                            val name = mealName.trim()
+                            mealName = ""
+                            onAddMeal(name) { mealId ->
+                                foodMealId = mealId
+                                foodEntryMode = "Catalog"
+                                clearFoodForm()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
 
                     if (selectedLog?.meals.isNullOrEmpty()) {
                         Text("No meals for this date", color = colors.onSurfaceVariant)
@@ -1040,22 +1129,43 @@ private fun DietSection(
 
                     selectedLog?.meals?.forEach { meal ->
                         val mealT = mealTotals(meal)
-                        Text("${meal.name} · ${mealT.calories} cal P${mealT.protein} C${mealT.carbs} F${mealT.fat}")
-                        meal.foods.forEach { food ->
-                            val qty = listOfNotNull(
-                                food.quantity?.let { q -> "${q}${food.unit.orEmpty()}" },
-                                food.calories?.let { "· ${it} cal" },
-                            ).joinToString(" ")
-                            Text("  ${food.name} $qty", style = MaterialTheme.typography.bodySmall)
-                            OutlinedButton(onClick = { onDeleteFood(meal.id, food.id) }) { Text("Delete food") }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            OutlinedButton(onClick = {
-                                foodMealId = meal.id
-                                foodEntryMode = "Catalog"
-                                clearFoodForm()
-                            }) { Text("Add food") }
-                            OutlinedButton(onClick = { onDeleteMeal(meal.id) }) { Text("Delete meal") }
+                        GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1, cornerRadius = 8.dp) {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("${meal.name}", fontWeight = FontWeight.Bold, color = SystemPrimary)
+                                Text(
+                                    "${mealT.calories} cal · P${mealT.protein} C${mealT.carbs} F${mealT.fat}",
+                                    fontFamily = JetBrainsMono,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                meal.foods.forEach { food ->
+                                    val qty = listOfNotNull(
+                                        food.quantity?.let { q -> "${q}${food.unit.orEmpty()}" },
+                                        food.calories?.let { "· ${it} cal" },
+                                    ).joinToString(" ")
+                                    Text("  ${food.name} $qty", style = MaterialTheme.typography.bodySmall)
+                                    SystemActionButton(
+                                        label = "DELETE FOOD",
+                                        onClick = { onDeleteFood(meal.id, food.id) },
+                                        primary = false,
+                                    )
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    SystemActionButton(
+                                        label = "ADD FOOD",
+                                        onClick = {
+                                            foodMealId = meal.id
+                                            foodEntryMode = "Catalog"
+                                            clearFoodForm()
+                                        },
+                                        primary = false,
+                                    )
+                                    SystemActionButton(
+                                        label = "DELETE MEAL",
+                                        onClick = { onDeleteMeal(meal.id) },
+                                        primary = false,
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -1254,68 +1364,77 @@ private fun DietSection(
                             )
                         }
 
-                        Button(onClick = {
-                            if (foodEntryMode == "Catalog") {
-                                if (selectedCatalog == null) {
-                                    onMessage("Select a food from the catalog")
-                                    return@Button
+                        SystemActionButton(
+                            label = "SAVE FOOD",
+                            onClick = {
+                                if (foodEntryMode == "Catalog") {
+                                    if (selectedCatalog == null) {
+                                        onMessage("Select a food from the catalog")
+                                        return@SystemActionButton
+                                    }
+                                    EntryValidation.requirePositiveFloat(foodQty, "quantity")?.let {
+                                        onMessage(it)
+                                        return@SystemActionButton
+                                    }
+                                    if (!macrosManualOverride) {
+                                        applyCatalogMacros(selectedCatalog!!, foodQty)
+                                    }
+                                    EntryValidation.firstError(
+                                        EntryValidation.requireNonBlank(foodName, "food name"),
+                                        EntryValidation.requireNonBlank(foodUnit, "unit"),
+                                        EntryValidation.requireNonNegativeInt(foodCal, "calories"),
+                                        EntryValidation.requireNonNegativeInt(foodP, "protein"),
+                                        EntryValidation.requireNonNegativeInt(foodC, "carbs"),
+                                        EntryValidation.requireNonNegativeInt(foodF, "fat"),
+                                    )?.let {
+                                        onMessage(it)
+                                        return@SystemActionButton
+                                    }
+                                } else {
+                                    EntryValidation.firstError(
+                                        EntryValidation.requireNonBlank(foodName, "food name"),
+                                        EntryValidation.requirePositiveFloat(foodQty, "quantity"),
+                                        EntryValidation.requireNonBlank(foodUnit, "unit"),
+                                        EntryValidation.requireNonNegativeInt(foodCal, "calories"),
+                                        EntryValidation.requireNonNegativeInt(foodP, "protein"),
+                                        EntryValidation.requireNonNegativeInt(foodC, "carbs"),
+                                        EntryValidation.requireNonNegativeInt(foodF, "fat"),
+                                    )?.let {
+                                        onMessage(it)
+                                        return@SystemActionButton
+                                    }
                                 }
-                                EntryValidation.requirePositiveFloat(foodQty, "quantity")?.let {
-                                    onMessage(it)
-                                    return@Button
+                                onUpsertFood(
+                                    mealId,
+                                    FoodItemEntity(
+                                        name = foodName.trim(),
+                                        quantity = foodQty.toFloat(),
+                                        unit = foodUnit.trim(),
+                                        calories = foodCal.toInt(),
+                                        protein = foodP.toInt(),
+                                        carbs = foodC.toInt(),
+                                        fat = foodF.toInt(),
+                                    ),
+                                )
+                                clearFoodForm()
+                                foodMealId = null
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        SystemActionButton(
+                            label = "CANCEL",
+                            onClick = {
+                                val meal = selectedLog?.meals?.firstOrNull { it.id == mealId }
+                                foodMealId = null
+                                clearFoodForm()
+                                if (meal != null && meal.foods.isEmpty()) {
+                                    onDeleteMeal(mealId)
+                                    onMessage("Add at least one food to the meal")
                                 }
-                                if (!macrosManualOverride) {
-                                    applyCatalogMacros(selectedCatalog!!, foodQty)
-                                }
-                                EntryValidation.firstError(
-                                    EntryValidation.requireNonBlank(foodName, "food name"),
-                                    EntryValidation.requireNonBlank(foodUnit, "unit"),
-                                    EntryValidation.requireNonNegativeInt(foodCal, "calories"),
-                                    EntryValidation.requireNonNegativeInt(foodP, "protein"),
-                                    EntryValidation.requireNonNegativeInt(foodC, "carbs"),
-                                    EntryValidation.requireNonNegativeInt(foodF, "fat"),
-                                )?.let {
-                                    onMessage(it)
-                                    return@Button
-                                }
-                            } else {
-                                EntryValidation.firstError(
-                                    EntryValidation.requireNonBlank(foodName, "food name"),
-                                    EntryValidation.requirePositiveFloat(foodQty, "quantity"),
-                                    EntryValidation.requireNonBlank(foodUnit, "unit"),
-                                    EntryValidation.requireNonNegativeInt(foodCal, "calories"),
-                                    EntryValidation.requireNonNegativeInt(foodP, "protein"),
-                                    EntryValidation.requireNonNegativeInt(foodC, "carbs"),
-                                    EntryValidation.requireNonNegativeInt(foodF, "fat"),
-                                )?.let {
-                                    onMessage(it)
-                                    return@Button
-                                }
-                            }
-                            onUpsertFood(
-                                mealId,
-                                FoodItemEntity(
-                                    name = foodName.trim(),
-                                    quantity = foodQty.toFloat(),
-                                    unit = foodUnit.trim(),
-                                    calories = foodCal.toInt(),
-                                    protein = foodP.toInt(),
-                                    carbs = foodC.toInt(),
-                                    fat = foodF.toInt(),
-                                ),
-                            )
-                            clearFoodForm()
-                            foodMealId = null
-                        }) { Text("Save food") }
-                        OutlinedButton(onClick = {
-                            val meal = selectedLog?.meals?.firstOrNull { it.id == mealId }
-                            foodMealId = null
-                            clearFoodForm()
-                            if (meal != null && meal.foods.isEmpty()) {
-                                onDeleteMeal(mealId)
-                                onMessage("Add at least one food to the meal")
-                            }
-                        }) { Text("Cancel") }
+                            },
+                            primary = false,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
 
                     selectedLog?.dailyTotals?.let { t ->
@@ -1349,17 +1468,12 @@ private fun DietSection(
 @Composable
 private fun MacroProgressRow(label: String, current: Int, target: Int, unit: String) {
     val colors = MaterialTheme.colorScheme
-    val progress = if (target <= 0) 0f else (current.toFloat() / target).coerceIn(0f, 1f)
-    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    val progress = progressFraction(current.toFloat(), target.toFloat())
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, style = MaterialTheme.typography.bodySmall)
-            Text("$current / $target $unit", style = MaterialTheme.typography.bodySmall)
+            Text(label, style = MaterialTheme.typography.bodySmall, fontFamily = JetBrainsMono)
+            Text("$current / $target $unit", style = MaterialTheme.typography.bodySmall, fontFamily = JetBrainsMono, color = SystemPrimary)
         }
-        LinearProgressIndicator(
-            progress = { progress },
-            modifier = Modifier.fillMaxWidth().height(4.dp),
-            color = colors.primary,
-            trackColor = colors.surfaceContainerHighest,
-        )
+        CyberProgressBar(progress = progress, height = 6.dp)
     }
 }

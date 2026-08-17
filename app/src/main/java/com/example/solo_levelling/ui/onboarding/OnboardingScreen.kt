@@ -1,24 +1,23 @@
 package com.example.solo_levelling.ui.onboarding
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,6 +38,17 @@ import com.example.solo_levelling.domain.service.NutritionCalc
 import com.example.solo_levelling.domain.service.OnboardingInput
 import com.example.solo_levelling.domain.service.WorkoutSplitLogic
 import com.example.solo_levelling.data.seed.WorkoutCatalog
+import com.example.solo_levelling.ui.components.BracketLabel
+import com.example.solo_levelling.ui.components.CyberProgressBar
+import com.example.solo_levelling.ui.components.EnergyFieldBackground
+import com.example.solo_levelling.ui.components.GlassLevel
+import com.example.solo_levelling.ui.components.GlassSurface
+import com.example.solo_levelling.ui.components.GhostTextButton
+import com.example.solo_levelling.ui.components.SystemActionButton
+import com.example.solo_levelling.ui.theme.JetBrainsMono
+import com.example.solo_levelling.ui.theme.SystemError
+import com.example.solo_levelling.ui.theme.SystemPrimary
+import com.example.solo_levelling.ui.theme.SystemSecondary
 import kotlinx.coroutines.launch
 
 internal enum class OnboardingStep {
@@ -73,6 +83,23 @@ internal fun buildOnboardingSteps(modules: EnabledModules): List<OnboardingStep>
 
 internal fun needsBodyFieldsInDietStep(modules: EnabledModules): Boolean =
     modules.diet && !modules.workout
+
+internal fun onboardingStepTitle(step: OnboardingStep): String = when (step) {
+    OnboardingStep.NAME -> "Establish Identity"
+    OnboardingStep.GOALS -> "Module Selection"
+    OnboardingStep.CAREER_INTENT -> "Career Intent"
+    OnboardingStep.CAREER_PROFILE -> "Career Profile"
+    OnboardingStep.CAREER_ASSESS -> "System Assessment"
+    OnboardingStep.WORKOUT_BODY -> "Fitness Profile"
+    OnboardingStep.WORKOUT_PLAN -> "Workout Plan"
+    OnboardingStep.DIET_NUTRITION -> "Nutrition Setup"
+    OnboardingStep.SUMMARY -> "System Summary"
+}
+
+internal fun onboardingProgressFraction(stepIndex: Int, totalSteps: Int): Float {
+    if (totalSteps <= 0) return 0f
+    return ((stepIndex + 1).toFloat() / totalSteps).coerceIn(0f, 1f)
+}
 
 private val careerIntentOptions = listOf(
     "learning" to "Learning",
@@ -143,9 +170,14 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit) {
     val activityLevels = listOf("sedentary", "light", "moderate", "active", "very_active")
     val colors = MaterialTheme.colorScheme
     val chipColors = FilterChipDefaults.filterChipColors(
-        selectedContainerColor = colors.primary.copy(alpha = 0.15f),
-        selectedLabelColor = colors.primary,
-        selectedLeadingIconColor = colors.primary,
+        selectedContainerColor = SystemPrimary.copy(alpha = 0.15f),
+        selectedLabelColor = SystemPrimary,
+        selectedLeadingIconColor = SystemPrimary,
+    )
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = SystemPrimary,
+        unfocusedBorderColor = SystemPrimary.copy(alpha = 0.3f),
+        cursorColor = SystemPrimary,
     )
 
     val ageInt = age.toIntOrNull() ?: 25
@@ -165,218 +197,108 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit) {
         CareerGoalEngine.assess(experienceBand, currentRole, targetRole, years, dsaConf, sdConf)
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(scroll)
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                "SYSTEM INITIALIZATION",
-                color = colors.primary,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 3.sp,
-                style = MaterialTheme.typography.labelMedium,
-            )
-            Text(
-                "Step ${stepIndex + 1} of ${steps.size}",
-                color = colors.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
-            border = BorderStroke(1.dp, colors.outline),
+    val forwardLabel = when {
+        stepIndex >= steps.lastIndex -> "BEGIN"
+        stepIndex == 0 -> "CONTINUE"
+        else -> "NEXT"
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        EnergyFieldBackground(Modifier.fillMaxSize())
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(scroll)
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Column(
-                Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                when (currentStep) {
-                    OnboardingStep.NAME -> {
-                        Text("Who is the Player?", style = MaterialTheme.typography.titleLarge)
-                        OutlinedTextField(
-                            value = name,
-                            onValueChange = { name = it },
-                            label = { Text("Player name") },
-                            placeholder = { Text("Hunter") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                        )
-                    }
-                    OnboardingStep.GOALS -> {
-                        Text("Choose your modules", style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            "Pick at least one focus area for your system.",
-                            color = colors.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        ModuleGoalCard(
-                            title = "Career",
-                            subtitle = "DSA, system design, and role progression",
-                            selected = enabledModules.career,
-                            onClick = { enabledModules = enabledModules.withCareer(!enabledModules.career) },
-                        )
-                        ModuleGoalCard(
-                            title = "Workout",
-                            subtitle = "Training splits, routines, and fitness quests",
-                            selected = enabledModules.workout,
-                            onClick = { enabledModules = enabledModules.withWorkout(!enabledModules.workout) },
-                        )
-                        ModuleGoalCard(
-                            title = "Diet",
-                            subtitle = "Calorie targets, macros, and nutrition tracking",
-                            selected = enabledModules.diet,
-                            onClick = { enabledModules = enabledModules.withDiet(!enabledModules.diet) },
-                        )
-                    }
-                    OnboardingStep.CAREER_INTENT -> {
-                        Text("Career intent", style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            "What are you optimizing for right now?",
-                            color = colors.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            careerIntentOptions.forEach { (id, label) ->
-                                FilterChip(
-                                    selected = careerIntent == id,
-                                    onClick = { careerIntent = id },
-                                    label = { Text(label) },
-                                    colors = chipColors,
-                                )
-                            }
-                        }
-                    }
-                    OnboardingStep.CAREER_PROFILE -> {
-                        Text("Career profile", style = MaterialTheme.typography.titleLarge)
-                        Text("Experience band", style = MaterialTheme.typography.labelMedium)
-                        ChipRow(bandOptions, experienceBand, chipColors) { experienceBand = it }
-                        OutlinedTextField(
-                            value = currentRole,
-                            onValueChange = { currentRole = it },
-                            label = { Text("Current role") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                        )
-                        OutlinedTextField(
-                            value = targetRole,
-                            onValueChange = { targetRole = it },
-                            label = { Text("Target role") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                        )
-                        OutlinedTextField(
-                            value = yearsExperience,
-                            onValueChange = { yearsExperience = it },
-                            label = { Text("Years experience") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                        )
-                        OutlinedTextField(
-                            value = techStack,
-                            onValueChange = { techStack = it },
-                            label = { Text("Tech stack") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                        )
-                        Text("DSA confidence", style = MaterialTheme.typography.labelMedium)
-                        ChipRow(confidenceBands, dsaConfidenceBand, chipColors) { dsaConfidenceBand = it }
-                        Text("System design confidence", style = MaterialTheme.typography.labelMedium)
-                        ChipRow(confidenceBands, sdConfidenceBand, chipColors) { sdConfidenceBand = it }
-                        OutlinedTextField(
-                            value = targetCompanies,
-                            onValueChange = { targetCompanies = it },
-                            label = { Text("Target companies (optional)") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                        )
-                        OutlinedTextField(
-                            value = targetComp,
-                            onValueChange = { targetComp = it },
-                            label = { Text("Target comp (optional)") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                        )
-                        OutlinedTextField(
-                            value = targetTimeline,
-                            onValueChange = { targetTimeline = it },
-                            label = { Text("Target timeline (optional)") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                        )
-                    }
-                    OnboardingStep.CAREER_ASSESS -> {
-                        Text("System assessment", style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            assessment.nextGoalTitle,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = colors.primary,
-                        )
-                        Text(assessment.reason, style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            "${assessment.currentLevelLabel} → ${assessment.targetLevelLabel}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant,
-                        )
-                        Text(
-                            "Mandatory: ${assessment.mandatoryAreas.joinToString(", ")}",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Text(
-                            "Recommended: ${assessment.recommendedAreas.joinToString(", ")}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant,
-                        )
-                    }
-                    OnboardingStep.WORKOUT_BODY -> {
-                        Text("Fitness profile", style = MaterialTheme.typography.titleLarge)
-                        BodyFields(
-                            age = age,
-                            onAgeChange = { age = it },
-                            sex = sex,
-                            onSexChange = { sex = it },
-                            heightCm = heightCm,
-                            onHeightChange = { heightCm = it },
-                            weightKg = weightKg,
-                            onWeightChange = { weightKg = it },
-                            trainingExperience = trainingExperience,
-                            onTrainingExperienceChange = { trainingExperience = it },
-                            fitnessGoal = fitnessGoal,
-                            onFitnessGoalChange = { fitnessGoal = it },
-                            activityLevel = activityLevel,
-                            onActivityLevelChange = { activityLevel = it },
-                            fitnessGoals = fitnessGoals,
-                            activityLevels = activityLevels,
-                            chipColors = chipColors,
-                        )
-                    }
-                    OnboardingStep.WORKOUT_PLAN -> {
-                        Text("Workout plan", style = MaterialTheme.typography.titleLarge)
-                        Text("Plan type", style = MaterialTheme.typography.labelMedium)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = !createOwnRoutine,
-                                onClick = { createOwnRoutine = false },
-                                label = { Text("Recommended split") },
-                                colors = chipColors,
-                            )
-                            FilterChip(
-                                selected = createOwnRoutine,
-                                onClick = { createOwnRoutine = true },
-                                label = { Text("Create my own") },
-                                colors = chipColors,
-                            )
-                        }
-                        if (createOwnRoutine) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "WELCOME",
+                        color = SystemPrimary,
+                        fontFamily = JetBrainsMono,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 3.sp,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = "STEP ${stepIndex + 1}/${steps.size}",
+                        color = colors.onSurfaceVariant,
+                        fontFamily = JetBrainsMono,
+                        style = MaterialTheme.typography.labelSmall,
+                        letterSpacing = 2.sp,
+                    )
+                }
+                CyberProgressBar(progress = onboardingProgressFraction(stepIndex, steps.size))
+                Text(
+                    text = "Turn your real life into progression.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant,
+                )
+            }
+
+            GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level2) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    BracketLabel(
+                        text = onboardingStepTitle(currentStep).uppercase(),
+                        color = SystemPrimary,
+                    )
+                    when (currentStep) {
+                        OnboardingStep.NAME -> {
                             Text(
-                                "Pick your training days (optional names per day).",
+                                "Who is the Player?",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            OutlinedTextField(
+                                value = name,
+                                onValueChange = { name = it },
+                                label = { Text("Player name") },
+                                placeholder = { Text("Hunter") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = fieldColors,
+                            )
+                        }
+                        OnboardingStep.GOALS -> {
+                            Text(
+                                "Choose your modules",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                "Pick at least one focus area for your system.",
+                                color = colors.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            ModuleGoalCard(
+                                title = "Career",
+                                subtitle = "DSA, system design, and role progression",
+                                selected = enabledModules.career,
+                                onClick = { enabledModules = enabledModules.withCareer(!enabledModules.career) },
+                            )
+                            ModuleGoalCard(
+                                title = "Workout",
+                                subtitle = "Training splits, routines, and fitness quests",
+                                selected = enabledModules.workout,
+                                onClick = { enabledModules = enabledModules.withWorkout(!enabledModules.workout) },
+                            )
+                            ModuleGoalCard(
+                                title = "Diet",
+                                subtitle = "Calorie targets, macros, and nutrition tracking",
+                                selected = enabledModules.diet,
+                                onClick = { enabledModules = enabledModules.withDiet(!enabledModules.diet) },
+                            )
+                        }
+                        OnboardingStep.CAREER_INTENT -> {
+                            Text("Career intent", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(
+                                "What are you optimizing for right now?",
                                 color = colors.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall,
                             )
@@ -384,86 +306,112 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit) {
                                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                WorkoutSplitLogic.weekdayLabels.forEach { (iso, label) ->
-                                    val dayKey = isoToScheduleDay[iso] ?: return@forEach
+                                careerIntentOptions.forEach { (id, label) ->
                                     FilterChip(
-                                        selected = dayKey in preferredWorkoutDays,
-                                        onClick = {
-                                            preferredWorkoutDays = if (dayKey in preferredWorkoutDays) {
-                                                preferredWorkoutDays - dayKey
-                                            } else {
-                                                preferredWorkoutDays + dayKey
-                                            }
-                                        },
+                                        selected = careerIntent == id,
+                                        onClick = { careerIntent = id },
                                         label = { Text(label) },
                                         colors = chipColors,
                                     )
                                 }
                             }
-                            preferredWorkoutDays.sortedBy { isoByWeekdayLabel[it] ?: 99 }.forEach { dayLabel ->
-                                val key = weekdayKeyByIso[isoByWeekdayLabel[dayLabel] ?: return@forEach] ?: return@forEach
-                                OutlinedTextField(
-                                    value = customDayNames[key].orEmpty(),
-                                    onValueChange = { customDayNames = customDayNames + (key to it) },
-                                    label = { Text("$dayLabel day name (optional)") },
-                                    placeholder = { Text("Workout") },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true,
-                                )
-                            }
-                        } else {
-                            Text("Workout split", style = MaterialTheme.typography.labelMedium)
-                            Text(
-                                "Assign each workout to a weekday below.",
-                                color = colors.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodySmall,
+                        }
+                        OnboardingStep.CAREER_PROFILE -> {
+                            Text("Career profile", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text("Experience band", style = MaterialTheme.typography.labelMedium)
+                            ChipRow(bandOptions, experienceBand, chipColors) { experienceBand = it }
+                            OutlinedTextField(
+                                value = currentRole,
+                                onValueChange = { currentRole = it },
+                                label = { Text("Current role") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = fieldColors,
                             )
-                            Row(
-                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                WorkoutCatalog.splits.forEach { split ->
-                                    FilterChip(
-                                        selected = split.id == workoutSplitId,
-                                        onClick = { workoutSplitId = split.id },
-                                        label = { Text("${split.name} (${split.daysPerWeek}d)") },
-                                        colors = chipColors,
+                            OutlinedTextField(
+                                value = targetRole,
+                                onValueChange = { targetRole = it },
+                                label = { Text("Target role") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = fieldColors,
+                            )
+                            OutlinedTextField(
+                                value = yearsExperience,
+                                onValueChange = { yearsExperience = it },
+                                label = { Text("Years experience") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = fieldColors,
+                            )
+                            OutlinedTextField(
+                                value = techStack,
+                                onValueChange = { techStack = it },
+                                label = { Text("Tech stack") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = fieldColors,
+                            )
+                            Text("DSA confidence", style = MaterialTheme.typography.labelMedium)
+                            ChipRow(confidenceBands, dsaConfidenceBand, chipColors) { dsaConfidenceBand = it }
+                            Text("System design confidence", style = MaterialTheme.typography.labelMedium)
+                            ChipRow(confidenceBands, sdConfidenceBand, chipColors) { sdConfidenceBand = it }
+                            OutlinedTextField(
+                                value = targetCompanies,
+                                onValueChange = { targetCompanies = it },
+                                label = { Text("Target companies (optional)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = fieldColors,
+                            )
+                            OutlinedTextField(
+                                value = targetComp,
+                                onValueChange = { targetComp = it },
+                                label = { Text("Target comp (optional)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = fieldColors,
+                            )
+                            OutlinedTextField(
+                                value = targetTimeline,
+                                onValueChange = { targetTimeline = it },
+                                label = { Text("Target timeline (optional)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = fieldColors,
+                            )
+                        }
+                        OnboardingStep.CAREER_ASSESS -> {
+                            Text("System assessment", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            GlassSurface(level = GlassLevel.Level1) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        assessment.nextGoalTitle,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = SystemPrimary,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Text(assessment.reason, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        "${assessment.currentLevelLabel} → ${assessment.targetLevelLabel}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = colors.onSurfaceVariant,
+                                        fontFamily = JetBrainsMono,
+                                    )
+                                    Text(
+                                        "Mandatory: ${assessment.mandatoryAreas.joinToString(", ")}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    Text(
+                                        "Recommended: ${assessment.recommendedAreas.joinToString(", ")}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = colors.onSurfaceVariant,
                                     )
                                 }
                             }
-                            Text("Assign workout days", style = MaterialTheme.typography.titleMedium)
-                            val split = WorkoutCatalog.findSplit(workoutSplitId)
-                            splitDayMapValidationMessage(workoutSplitId, splitDayMap)?.let { msg ->
-                                Text(
-                                    msg,
-                                    color = colors.error,
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                            split?.schedule?.sortedBy { it.day }?.forEach { slot ->
-                                Text(
-                                    WorkoutSplitLogic.workoutLabelForSlot(workoutSplitId, slot.day),
-                                    style = MaterialTheme.typography.labelMedium,
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    WorkoutSplitLogic.weekdayLabels.forEach { (iso, label) ->
-                                        FilterChip(
-                                            selected = splitDayMap[slot.day] == iso,
-                                            onClick = { splitDayMap = splitDayMap + (slot.day to iso) },
-                                            label = { Text(label) },
-                                            colors = chipColors,
-                                        )
-                                    }
-                                }
-                            }
                         }
-                    }
-                    OnboardingStep.DIET_NUTRITION -> {
-                        Text("Nutrition setup", style = MaterialTheme.typography.titleLarge)
-                        if (needsBodyFieldsInDietStep(enabledModules)) {
+                        OnboardingStep.WORKOUT_BODY -> {
+                            Text("Fitness profile", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                             BodyFields(
                                 age = age,
                                 onAgeChange = { age = it },
@@ -482,166 +430,319 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit) {
                                 fitnessGoals = fitnessGoals,
                                 activityLevels = activityLevels,
                                 chipColors = chipColors,
-                                showTrainingExperience = false,
+                                fieldColors = fieldColors,
                             )
                         }
-                        Text(
-                            "BMI: ${String.format("%.1f", bmi)} (${NutritionCalc.bmiCategory(bmi)})",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text("BMR: ${bmr.toInt()} kcal", style = MaterialTheme.typography.bodyMedium)
-                        Text("TDEE: ${tdee.toInt()} kcal", style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            "Goal calories: $computedCalories kcal",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            "Macros — P: ${macros.proteinG}g · C: ${macros.carbsG}g · F: ${macros.fatG}g",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant,
-                        )
-                        OutlinedTextField(
-                            value = targetWeightKg,
-                            onValueChange = { targetWeightKg = it },
-                            label = { Text("Target weight kg (optional)") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                        )
-                        OutlinedTextField(
-                            value = calorieOverride,
-                            onValueChange = { calorieOverride = it },
-                            label = { Text("Calorie override (optional)") },
-                            placeholder = { Text(computedCalories.toString()) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                        )
-                    }
-                    OnboardingStep.SUMMARY -> {
-                        Text("Ready to initialize", style = MaterialTheme.typography.titleLarge)
-                        Text("Player: ${name.ifBlank { "Hunter" }}", style = MaterialTheme.typography.bodyMedium)
-                        Text("Modules:", style = MaterialTheme.typography.labelMedium)
-                        if (enabledModules.career) {
-                            Text("• Career — $careerIntent", style = MaterialTheme.typography.bodySmall)
-                            Text(
-                                "  ${assessment.nextGoalTitle}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = colors.onSurfaceVariant,
-                            )
-                        }
-                        if (enabledModules.workout) {
-                            val planLabel = if (createOwnRoutine) {
-                                "Custom (${preferredWorkoutDays.size} days)"
+                        OnboardingStep.WORKOUT_PLAN -> {
+                            Text("Workout plan", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text("Plan type", style = MaterialTheme.typography.labelMedium)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = !createOwnRoutine,
+                                    onClick = { createOwnRoutine = false },
+                                    label = { Text("Recommended split") },
+                                    colors = chipColors,
+                                )
+                                FilterChip(
+                                    selected = createOwnRoutine,
+                                    onClick = { createOwnRoutine = true },
+                                    label = { Text("Create my own") },
+                                    colors = chipColors,
+                                )
+                            }
+                            if (createOwnRoutine) {
+                                Text(
+                                    "Pick your training days (optional names per day).",
+                                    color = colors.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    WorkoutSplitLogic.weekdayLabels.forEach { (iso, label) ->
+                                        val dayKey = isoToScheduleDay[iso] ?: return@forEach
+                                        FilterChip(
+                                            selected = dayKey in preferredWorkoutDays,
+                                            onClick = {
+                                                preferredWorkoutDays = if (dayKey in preferredWorkoutDays) {
+                                                    preferredWorkoutDays - dayKey
+                                                } else {
+                                                    preferredWorkoutDays + dayKey
+                                                }
+                                            },
+                                            label = { Text(label) },
+                                            colors = chipColors,
+                                        )
+                                    }
+                                }
+                                preferredWorkoutDays.sortedBy { isoByWeekdayLabel[it] ?: 99 }.forEach { dayLabel ->
+                                    val key = weekdayKeyByIso[isoByWeekdayLabel[dayLabel] ?: return@forEach] ?: return@forEach
+                                    OutlinedTextField(
+                                        value = customDayNames[key].orEmpty(),
+                                        onValueChange = { customDayNames = customDayNames + (key to it) },
+                                        label = { Text("$dayLabel day name (optional)") },
+                                        placeholder = { Text("Workout") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        colors = fieldColors,
+                                    )
+                                }
                             } else {
-                                WorkoutCatalog.findSplit(workoutSplitId)?.name ?: workoutSplitId
-                            }
-                            Text("• Workout — $planLabel", style = MaterialTheme.typography.bodySmall)
-                        }
-                        if (enabledModules.diet) {
-                            Text(
-                                "• Diet — $computedCalories kcal target",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (stepIndex > 0) {
-                OutlinedButton(onClick = { stepIndex -= 1 }, modifier = Modifier.weight(1f)) {
-                    Text("Back")
-                }
-            }
-            Button(
-                onClick = {
-                    if (stepIndex < steps.lastIndex) {
-                        stepIndex += 1
-                    } else {
-                        scope.launch {
-                            val scheduleDays = when {
-                                enabledModules.workout && createOwnRoutine ->
-                                    preferredWorkoutDays.sortedBy { isoByWeekdayLabel[it] ?: 99 }
-                                enabledModules.workout && !createOwnRoutine ->
-                                    scheduleDaysFromSplitDayMap(splitDayMap)
-                                else -> emptyList()
-                            }
-                            container.onboarding.completeOnboarding(
-                                OnboardingInput(
-                                    name = name,
-                                    modules = enabledModules,
-                                    priorities = buildList {
-                                        if (enabledModules.career) add("career")
-                                        if (enabledModules.workout) add("fitness")
-                                        if (enabledModules.diet) add("health")
-                                    },
-                                    scheduleDays = scheduleDays,
-                                    careerIntent = if (enabledModules.career) careerIntent else "",
-                                    experienceBand = if (enabledModules.career) experienceBand else "",
-                                    currentRole = if (enabledModules.career) currentRole else "",
-                                    targetRole = if (enabledModules.career) targetRole else "",
-                                    yearsExperience = if (enabledModules.career) years else 0.0,
-                                    techStack = if (enabledModules.career) techStack else "",
-                                    targetCompanies = if (enabledModules.career) targetCompanies else "",
-                                    targetComp = if (enabledModules.career) targetComp else "",
-                                    targetTimeline = if (enabledModules.career) targetTimeline else "",
-                                    dsaConfidence = if (enabledModules.career) dsaConf else 50,
-                                    sdConfidence = if (enabledModules.career) sdConf else 50,
-                                    age = if (enabledModules.workout || enabledModules.diet) ageInt else 25,
-                                    sex = if (enabledModules.workout || enabledModules.diet) sex else "male",
-                                    heightCm = if (enabledModules.workout || enabledModules.diet) height else 170.0,
-                                    weightKg = if (enabledModules.workout || enabledModules.diet) weight else 70.0,
-                                    trainingExperience = if (enabledModules.workout) trainingExperience else "beginner",
-                                    fitnessGoal = if (enabledModules.workout || enabledModules.diet) fitnessGoal else "maintenance",
-                                    trainingDays = if (enabledModules.workout) {
-                                        if (createOwnRoutine) {
-                                            preferredWorkoutDays.size.coerceAtLeast(1)
-                                        } else {
-                                            WorkoutCatalog.findSplit(workoutSplitId)?.daysPerWeek ?: 3
+                                Text("Workout split", style = MaterialTheme.typography.labelMedium)
+                                Text(
+                                    "Assign each workout to a weekday below.",
+                                    color = colors.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    WorkoutCatalog.splits.forEach { split ->
+                                        FilterChip(
+                                            selected = split.id == workoutSplitId,
+                                            onClick = { workoutSplitId = split.id },
+                                            label = { Text("${split.name} (${split.daysPerWeek}d)") },
+                                            colors = chipColors,
+                                        )
+                                    }
+                                }
+                                Text("Assign workout days", style = MaterialTheme.typography.titleMedium)
+                                val split = WorkoutCatalog.findSplit(workoutSplitId)
+                                splitDayMapValidationMessage(workoutSplitId, splitDayMap)?.let { msg ->
+                                    Text(
+                                        msg,
+                                        color = SystemError,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                                split?.schedule?.sortedBy { it.day }?.forEach { slot ->
+                                    Text(
+                                        WorkoutSplitLogic.workoutLabelForSlot(workoutSplitId, slot.day),
+                                        style = MaterialTheme.typography.labelMedium,
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        WorkoutSplitLogic.weekdayLabels.forEach { (iso, label) ->
+                                            FilterChip(
+                                                selected = splitDayMap[slot.day] == iso,
+                                                onClick = { splitDayMap = splitDayMap + (slot.day to iso) },
+                                                label = { Text(label) },
+                                                colors = chipColors,
+                                            )
                                         }
-                                    } else {
-                                        3
-                                    },
-                                    workoutSplitId = if (enabledModules.workout && !createOwnRoutine) workoutSplitId else "",
-                                    workoutDayMapCsv = if (enabledModules.workout && !createOwnRoutine) {
-                                        WorkoutSplitLogic.encodeDayMap(splitDayMap)
-                                    } else {
-                                        ""
-                                    },
-                                    createOwnRoutine = enabledModules.workout && createOwnRoutine,
-                                    customDayNames = if (enabledModules.workout && createOwnRoutine) customDayNames else emptyMap(),
-                                    preferredWorkoutDays = if (enabledModules.workout && createOwnRoutine) {
-                                        preferredWorkoutDays.sortedBy { isoByWeekdayLabel[it] ?: 99 }
-                                    } else {
-                                        emptyList()
-                                    },
-                                    activityLevel = if (enabledModules.workout || enabledModules.diet) activityLevel else "moderate",
-                                    targetWeightKg = if (enabledModules.diet) targetWeightKg.toDoubleOrNull() else null,
-                                    calorieOverride = if (enabledModules.diet) calorieOverride.toIntOrNull() else null,
-                                ),
+                                    }
+                                }
+                            }
+                        }
+                        OnboardingStep.DIET_NUTRITION -> {
+                            Text("Nutrition setup", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            if (needsBodyFieldsInDietStep(enabledModules)) {
+                                BodyFields(
+                                    age = age,
+                                    onAgeChange = { age = it },
+                                    sex = sex,
+                                    onSexChange = { sex = it },
+                                    heightCm = heightCm,
+                                    onHeightChange = { heightCm = it },
+                                    weightKg = weightKg,
+                                    onWeightChange = { weightKg = it },
+                                    trainingExperience = trainingExperience,
+                                    onTrainingExperienceChange = { trainingExperience = it },
+                                    fitnessGoal = fitnessGoal,
+                                    onFitnessGoalChange = { fitnessGoal = it },
+                                    activityLevel = activityLevel,
+                                    onActivityLevelChange = { activityLevel = it },
+                                    fitnessGoals = fitnessGoals,
+                                    activityLevels = activityLevels,
+                                    chipColors = chipColors,
+                                    fieldColors = fieldColors,
+                                    showTrainingExperience = false,
+                                )
+                            }
+                            GlassSurface(level = GlassLevel.Level1) {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        "BMI: ${String.format("%.1f", bmi)} (${NutritionCalc.bmiCategory(bmi)})",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+                                    Text("BMR: ${bmr.toInt()} kcal", style = MaterialTheme.typography.bodyMedium)
+                                    Text("TDEE: ${tdee.toInt()} kcal", style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        "Goal calories: $computedCalories kcal",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = SystemPrimary,
+                                    )
+                                    Text(
+                                        "Macros — P: ${macros.proteinG}g · C: ${macros.carbsG}g · F: ${macros.fatG}g",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = colors.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            OutlinedTextField(
+                                value = targetWeightKg,
+                                onValueChange = { targetWeightKg = it },
+                                label = { Text("Target weight kg (optional)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = fieldColors,
                             )
-                            onDone()
+                            OutlinedTextField(
+                                value = calorieOverride,
+                                onValueChange = { calorieOverride = it },
+                                label = { Text("Calorie override (optional)") },
+                                placeholder = { Text(computedCalories.toString()) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = fieldColors,
+                            )
+                        }
+                        OnboardingStep.SUMMARY -> {
+                            Text(
+                                "Ready to initialize",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            GlassSurface(level = GlassLevel.Level1) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    BracketLabel(text = "SYSTEM SUMMARY", color = SystemSecondary)
+                                    Text(
+                                        "Player: ${name.ifBlank { "Hunter" }}",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontFamily = JetBrainsMono,
+                                    )
+                                    Text("Modules:", style = MaterialTheme.typography.labelMedium)
+                                    if (enabledModules.career) {
+                                        Text("• Career — $careerIntent", style = MaterialTheme.typography.bodySmall)
+                                        Text(
+                                            "  ${assessment.nextGoalTitle}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = colors.onSurfaceVariant,
+                                        )
+                                    }
+                                    if (enabledModules.workout) {
+                                        val planLabel = if (createOwnRoutine) {
+                                            "Custom (${preferredWorkoutDays.size} days)"
+                                        } else {
+                                            WorkoutCatalog.findSplit(workoutSplitId)?.name ?: workoutSplitId
+                                        }
+                                        Text("• Workout — $planLabel", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    if (enabledModules.diet) {
+                                        Text(
+                                            "• Diet — $computedCalories kcal target",
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
-                },
-                enabled = isOnboardingStepValid(
-                    step = currentStep,
-                    name = name,
-                    enabledModules = enabledModules,
-                    careerIntent = careerIntent,
-                    createOwnRoutine = createOwnRoutine,
-                    workoutSplitId = workoutSplitId,
-                    splitDayMap = splitDayMap,
-                    preferredWorkoutDays = preferredWorkoutDays,
-                    heightCm = heightCm,
-                    weightKg = weightKg,
-                ),
-                modifier = Modifier.weight(1f),
+                }
+            }
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(if (stepIndex < steps.lastIndex) "Next" else "Initialize System")
+                if (stepIndex > 0) {
+                    GhostTextButton(
+                        label = "ABORT",
+                        onClick = { stepIndex -= 1 },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                SystemActionButton(
+                    label = forwardLabel,
+                    onClick = {
+                        if (stepIndex < steps.lastIndex) {
+                            stepIndex += 1
+                        } else {
+                            scope.launch {
+                                val scheduleDays = when {
+                                    enabledModules.workout && createOwnRoutine ->
+                                        preferredWorkoutDays.sortedBy { isoByWeekdayLabel[it] ?: 99 }
+                                    enabledModules.workout && !createOwnRoutine ->
+                                        scheduleDaysFromSplitDayMap(splitDayMap)
+                                    else -> emptyList()
+                                }
+                                container.onboarding.completeOnboarding(
+                                    OnboardingInput(
+                                        name = name,
+                                        modules = enabledModules,
+                                        priorities = buildList {
+                                            if (enabledModules.career) add("career")
+                                            if (enabledModules.workout) add("fitness")
+                                            if (enabledModules.diet) add("health")
+                                        },
+                                        scheduleDays = scheduleDays,
+                                        careerIntent = if (enabledModules.career) careerIntent else "",
+                                        experienceBand = if (enabledModules.career) experienceBand else "",
+                                        currentRole = if (enabledModules.career) currentRole else "",
+                                        targetRole = if (enabledModules.career) targetRole else "",
+                                        yearsExperience = if (enabledModules.career) years else 0.0,
+                                        techStack = if (enabledModules.career) techStack else "",
+                                        targetCompanies = if (enabledModules.career) targetCompanies else "",
+                                        targetComp = if (enabledModules.career) targetComp else "",
+                                        targetTimeline = if (enabledModules.career) targetTimeline else "",
+                                        dsaConfidence = if (enabledModules.career) dsaConf else 50,
+                                        sdConfidence = if (enabledModules.career) sdConf else 50,
+                                        age = if (enabledModules.workout || enabledModules.diet) ageInt else 25,
+                                        sex = if (enabledModules.workout || enabledModules.diet) sex else "male",
+                                        heightCm = if (enabledModules.workout || enabledModules.diet) height else 170.0,
+                                        weightKg = if (enabledModules.workout || enabledModules.diet) weight else 70.0,
+                                        trainingExperience = if (enabledModules.workout) trainingExperience else "beginner",
+                                        fitnessGoal = if (enabledModules.workout || enabledModules.diet) fitnessGoal else "maintenance",
+                                        trainingDays = if (enabledModules.workout) {
+                                            if (createOwnRoutine) {
+                                                preferredWorkoutDays.size.coerceAtLeast(1)
+                                            } else {
+                                                WorkoutCatalog.findSplit(workoutSplitId)?.daysPerWeek ?: 3
+                                            }
+                                        } else {
+                                            3
+                                        },
+                                        workoutSplitId = if (enabledModules.workout && !createOwnRoutine) workoutSplitId else "",
+                                        workoutDayMapCsv = if (enabledModules.workout && !createOwnRoutine) {
+                                            WorkoutSplitLogic.encodeDayMap(splitDayMap)
+                                        } else {
+                                            ""
+                                        },
+                                        createOwnRoutine = enabledModules.workout && createOwnRoutine,
+                                        customDayNames = if (enabledModules.workout && createOwnRoutine) customDayNames else emptyMap(),
+                                        preferredWorkoutDays = if (enabledModules.workout && createOwnRoutine) {
+                                            preferredWorkoutDays.sortedBy { isoByWeekdayLabel[it] ?: 99 }
+                                        } else {
+                                            emptyList()
+                                        },
+                                        activityLevel = if (enabledModules.workout || enabledModules.diet) activityLevel else "moderate",
+                                        targetWeightKg = if (enabledModules.diet) targetWeightKg.toDoubleOrNull() else null,
+                                        calorieOverride = if (enabledModules.diet) calorieOverride.toIntOrNull() else null,
+                                    ),
+                                )
+                                onDone()
+                            }
+                        }
+                    },
+                    enabled = isOnboardingStepValid(
+                        step = currentStep,
+                        name = name,
+                        enabledModules = enabledModules,
+                        careerIntent = careerIntent,
+                        createOwnRoutine = createOwnRoutine,
+                        workoutSplitId = workoutSplitId,
+                        splitDayMap = splitDayMap,
+                        preferredWorkoutDays = preferredWorkoutDays,
+                        heightCm = heightCm,
+                        weightKg = weightKg,
+                    ),
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }
@@ -654,22 +755,26 @@ private fun ModuleGoalCard(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val colors = MaterialTheme.colorScheme
-    Card(
+    val borderColor = if (selected) SystemPrimary else SystemPrimary.copy(alpha = 0.2f)
+    GlassSurface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) colors.primary.copy(alpha = 0.12f) else colors.surface,
-        ),
-        border = BorderStroke(
-            1.dp,
-            if (selected) colors.primary else colors.outline,
-        ),
+            .clickable(onClick = onClick)
+            .border(1.dp, borderColor, RoundedCornerShape(12.dp)),
+        level = GlassLevel.Level1,
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (selected) SystemPrimary else MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -693,6 +798,7 @@ private fun BodyFields(
     fitnessGoals: List<String>,
     activityLevels: List<String>,
     chipColors: androidx.compose.material3.SelectableChipColors,
+    fieldColors: androidx.compose.material3.TextFieldColors,
     showTrainingExperience: Boolean = true,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -702,6 +808,7 @@ private fun BodyFields(
             label = { Text("Age") },
             modifier = Modifier.weight(1f),
             singleLine = true,
+            colors = fieldColors,
         )
         OutlinedTextField(
             value = sex,
@@ -709,6 +816,7 @@ private fun BodyFields(
             label = { Text("Sex") },
             modifier = Modifier.weight(1f),
             singleLine = true,
+            colors = fieldColors,
         )
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -718,6 +826,7 @@ private fun BodyFields(
             label = { Text("Height cm") },
             modifier = Modifier.weight(1f),
             singleLine = true,
+            colors = fieldColors,
         )
         OutlinedTextField(
             value = weightKg,
@@ -725,6 +834,7 @@ private fun BodyFields(
             label = { Text("Weight kg") },
             modifier = Modifier.weight(1f),
             singleLine = true,
+            colors = fieldColors,
         )
     }
     if (showTrainingExperience) {

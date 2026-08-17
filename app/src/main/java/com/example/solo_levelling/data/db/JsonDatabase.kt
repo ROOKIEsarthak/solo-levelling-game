@@ -162,7 +162,7 @@ class JsonDatabase(private val rootDir: File) {
                 id = SystemDefaults.PLAYER_ID,
                 name = savedProfile?.name ?: "Hunter",
                 timezone = savedProfile?.timezone ?: "Asia/Kolkata",
-                onboardingDone = savedProfile?.onboardingDone ?: false,
+                onboardingDone = false,
                 prioritiesCsv = savedProfile?.prioritiesCsv ?: "",
                 createdAtEpochMs = savedProfile?.createdAtEpochMs ?: 0L,
             ),

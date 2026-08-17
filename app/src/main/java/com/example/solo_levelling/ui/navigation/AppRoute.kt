@@ -16,11 +16,11 @@ sealed class AppRoute(val route: String) {
     data object Settings : AppRoute("settings")
 }
 
-/** Primary mobile bottom tabs. */
+/** Primary mobile bottom tabs (Sovereign OS shell). */
 val mainTabs = listOf(
     AppRoute.Dashboard,
-    AppRoute.Career,
-    AppRoute.Fitness,
-    AppRoute.Nutrition,
+    AppRoute.Quests,
+    AppRoute.Analytics,
+    AppRoute.Character,
     AppRoute.More,
 )

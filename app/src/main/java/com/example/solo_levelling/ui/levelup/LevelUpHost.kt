@@ -4,13 +4,17 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,8 +35,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.domain.copy.SystemMessages
-import com.example.solo_levelling.ui.theme.GlowCyan
+import com.example.solo_levelling.ui.components.BracketLabel
+import com.example.solo_levelling.ui.components.GlassLevel
+import com.example.solo_levelling.ui.components.GlassSurface
+import com.example.solo_levelling.ui.components.SystemActionButton
+import com.example.solo_levelling.ui.theme.GlowPurple
+import com.example.solo_levelling.ui.theme.JetBrainsMono
 import com.example.solo_levelling.ui.theme.SystemBackground
+import com.example.solo_levelling.ui.theme.SystemPrimary
+import com.example.solo_levelling.ui.theme.SystemPrimaryContainer
+import com.example.solo_levelling.ui.theme.SystemSecondary
+import com.example.solo_levelling.ui.theme.SystemTertiary
 import kotlinx.coroutines.delay
 
 @Composable
@@ -61,13 +74,19 @@ fun LevelUpHost(container: AppContainer) {
         stage = 6
     }
 
+    val isRankUp = e is LevelUpEvent.RankUp
+    val auraColor = if (isRankUp) SystemSecondary else SystemPrimaryContainer
+
     Box(
         Modifier
             .fillMaxSize()
-            .background(SystemBackground.copy(alpha = 0.88f))
+            .background(SystemBackground.copy(alpha = 0.92f))
             .background(
                 Brush.radialGradient(
-                    colors = listOf(GlowCyan.copy(alpha = 0.22f), Color.Transparent),
+                    colors = listOf(
+                        auraColor.copy(alpha = if (isRankUp) 0.28f else 0.22f),
+                        Color.Transparent,
+                    ),
                 ),
             ),
         contentAlignment = Alignment.Center,
@@ -77,85 +96,199 @@ fun LevelUpHost(container: AppContainer) {
                 .fillMaxWidth()
                 .padding(32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             when (e) {
                 is LevelUpEvent.LevelUp -> {
                     AnimatedVisibility(visible = stage >= 1, enter = fadeIn(), exit = fadeOut()) {
                         Text(
-                            "LEVEL UP",
-                            color = MaterialTheme.colorScheme.primary,
+                            text = "LEVEL UP",
+                            color = SystemPrimary,
+                            fontFamily = JetBrainsMono,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 6.sp,
-                            style = MaterialTheme.typography.labelLarge,
+                            style = MaterialTheme.typography.headlineMedium,
                         )
                     }
                     AnimatedVisibility(visible = stage >= 2, enter = fadeIn(), exit = fadeOut()) {
-                        Text(
-                            "${e.newLevel}",
-                            style = MaterialTheme.typography.displayLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = GlowCyan,
-                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "${e.oldLevel}",
+                                style = MaterialTheme.typography.displayMedium,
+                                fontFamily = JetBrainsMono,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            )
+                            Text(
+                                text = "→",
+                                style = MaterialTheme.typography.displaySmall,
+                                fontFamily = JetBrainsMono,
+                                color = SystemPrimary,
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .border(1.dp, SystemPrimary.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                    .background(SystemPrimary.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                            ) {
+                                Text(
+                                    text = "${e.newLevel}",
+                                    style = MaterialTheme.typography.displayLarge,
+                                    fontFamily = JetBrainsMono,
+                                    fontWeight = FontWeight.Bold,
+                                    color = SystemPrimary,
+                                )
+                            }
+                        }
                     }
                     AnimatedVisibility(visible = stage >= 3, enter = fadeIn(), exit = fadeOut()) {
-                        Text(
-                            if (improvement != null) {
-                                "YOU ARE ${"%.1f".format(improvement)}%\nBETTER THAN BEFORE."
-                            } else {
-                                "BUILDING YOUR BASELINE\n\nKeep showing up.\nYour improvement score\nwill appear once enough data\nhas been collected."
-                            },
-                            textAlign = TextAlign.Center,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                        )
+                        GlassSurface(
+                            modifier = Modifier.fillMaxWidth(),
+                            level = GlassLevel.Level2,
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                BracketLabel(text = "REWARDS ACQUIRED", color = SystemPrimary)
+                                if (improvement != null) {
+                                    RewardRow(
+                                        label = "IMPROVEMENT +${"%.1f".format(improvement)}%",
+                                        accent = SystemPrimary,
+                                    )
+                                } else {
+                                    RewardRow(
+                                        label = "BASELINE TRACKING ACTIVE",
+                                        accent = SystemPrimary,
+                                    )
+                                }
+                                RewardRow(
+                                    label = "LEVEL ${e.oldLevel} → ${e.newLevel}",
+                                    accent = SystemTertiary,
+                                )
+                            }
+                        }
                     }
                     AnimatedVisibility(visible = stage >= 4, enter = fadeIn(), exit = fadeOut()) {
                         Text(
-                            message,
+                            text = "Your progression continues.",
                             textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     AnimatedVisibility(visible = stage >= 5, enter = fadeIn(), exit = fadeOut()) {
                         Text(
-                            "LEVEL ${e.oldLevel} → ${e.newLevel}",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall,
+                            text = message,
+                            textAlign = TextAlign.Center,
+                            color = SystemPrimary,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontFamily = JetBrainsMono,
+                            fontWeight = FontWeight.Bold,
                         )
                     }
                 }
                 is LevelUpEvent.RankUp -> {
-                    Text(
-                        "RANK UP",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 4.sp,
-                    )
-                    Text(
-                        "${e.oldRank} → ${e.newRank}",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        SystemMessages.pick(SystemMessages.Category.Consistency, e.newRank.hashCode()),
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.titleSmall,
-                    )
+                    AnimatedVisibility(visible = stage >= 1, enter = fadeIn(), exit = fadeOut()) {
+                        Text(
+                            text = "RANK UP",
+                            color = SystemSecondary,
+                            fontFamily = JetBrainsMono,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 6.sp,
+                            style = MaterialTheme.typography.headlineMedium,
+                        )
+                    }
+                    AnimatedVisibility(visible = stage >= 2, enter = fadeIn(), exit = fadeOut()) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = e.oldRank,
+                                style = MaterialTheme.typography.headlineLarge,
+                                fontFamily = JetBrainsMono,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            )
+                            Text(
+                                text = "→",
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontFamily = JetBrainsMono,
+                                color = SystemSecondary,
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .border(1.dp, GlowPurple.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                                    .background(GlowPurple.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                            ) {
+                                Text(
+                                    text = e.newRank,
+                                    style = MaterialTheme.typography.headlineLarge,
+                                    fontFamily = JetBrainsMono,
+                                    fontWeight = FontWeight.Bold,
+                                    color = SystemSecondary,
+                                )
+                            }
+                        }
+                    }
+                    AnimatedVisibility(visible = stage >= 3, enter = fadeIn(), exit = fadeOut()) {
+                        GlassSurface(
+                            modifier = Modifier.fillMaxWidth(),
+                            level = GlassLevel.Level2,
+                            borderAlpha = 0.25f,
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                BracketLabel(text = "RANK TRANSITION", color = SystemSecondary)
+                                RewardRow(
+                                    label = "${e.oldRank} → ${e.newRank}",
+                                    accent = SystemSecondary,
+                                )
+                                RewardRow(
+                                    label = "NEW TIER PRIVILEGES UNLOCKED",
+                                    accent = SystemTertiary,
+                                )
+                            }
+                        }
+                    }
+                    AnimatedVisibility(visible = stage >= 4, enter = fadeIn(), exit = fadeOut()) {
+                        Text(
+                            text = SystemMessages.pick(SystemMessages.Category.Consistency, e.newRank.hashCode()),
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
-            AnimatedVisibility(visible = stage >= 6 || e is LevelUpEvent.RankUp, enter = fadeIn()) {
-                Button(
+            AnimatedVisibility(visible = stage >= 6, enter = fadeIn()) {
+                Spacer(Modifier.height(8.dp))
+                SystemActionButton(
+                    label = "CONTINUE",
                     onClick = { vm.dismiss() },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                ) {
-                    Text("CONTINUE")
-                }
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun RewardRow(label: String, accent: Color) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(accent.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+            .border(1.dp, accent.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            fontFamily = JetBrainsMono,
+            color = accent,
+        )
     }
 }

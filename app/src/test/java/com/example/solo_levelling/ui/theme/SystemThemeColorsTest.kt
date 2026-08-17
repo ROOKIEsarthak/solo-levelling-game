@@ -8,13 +8,13 @@ import org.junit.Test
 
 class SystemThemeColorsTest {
     @Test
-    fun p_darkSchemeUsesBluePrimaryAndBackground() {
-        assertEquals(Color(0xFF4DA3FF), SystemPrimary)
+    fun p_darkSchemeUsesSovereignPrimaryAndBackground() {
+        assertEquals(Color(0xFFA2C9FF), SystemPrimary)
+        assertEquals(Color(0xFF4DA3FF), SystemPrimaryContainer)
         assertEquals(Color(0xFF05070D), SystemBackground)
         assertEquals(SystemPrimary, DarkColorScheme.primary)
         assertEquals(SystemBackground, DarkColorScheme.background)
         assertEquals(SystemSurface, DarkColorScheme.surfaceContainer)
-        assertEquals(SystemSurface2, DarkColorScheme.surfaceContainerHigh)
         assertEquals(SystemError, DarkColorScheme.error)
     }
 
@@ -24,20 +24,21 @@ class SystemThemeColorsTest {
         assertNotEquals(SystemSuccess, SystemError)
         assertNotEquals(SystemPrimary, SystemBackground)
         assertNotEquals(SystemPrimary, SystemSecondary)
+        assertNotEquals(SystemTertiary, SystemPrimary)
     }
 
     @Test
     fun e_splashGlowTokensMatchBrandHex() {
         assertEquals(Color(0xFF05070D), SplashBackground)
         assertEquals(Color(0xFF7C6CFF), GlowPurple)
-        assertEquals(Color(0xFF67D4FF), GlowCyan)
-        assertEquals(Color(0xFF67D4FF), SystemCyan)
+        assertEquals(Color(0xFF4DA3FF), GlowCyan)
+        assertEquals(Color(0xFF4DA3FF), SystemCyan)
     }
 
     @Test
-    fun e_outlineIsLowAlphaWhite() {
-        assertTrue(SystemOutline.alpha < 0.2f)
-        assertTrue(SystemOutline.red > 0.9f)
+    fun e_outlineHasVisibleAlpha() {
+        assertTrue(SystemOutline.alpha > 0f)
+        assertTrue(SystemOutline.alpha < 0.5f)
     }
 
     @Test
@@ -49,7 +50,8 @@ class SystemThemeColorsTest {
     @Test
     fun e_cardAndElevatedSurfacesMatchBrief() {
         assertEquals(Color(0xFF0D1320), SystemSurface)
-        assertEquals(Color(0xFF111827), SystemSurface2)
-        assertEquals(Color(0xFF080C16), SystemSecondaryBackground)
+        assertEquals(Color(0xFF11131A), SystemSurface2)
+        assertEquals(Color(0xFFEDC146), SystemTertiary)
+        assertEquals(Color(0xFFC6BFFF), SystemSecondary)
     }
 }

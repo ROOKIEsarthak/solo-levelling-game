@@ -1,5 +1,6 @@
 package com.example.solo_levelling.ui.dashboard
 
+import com.example.solo_levelling.ui.components.greetingForHour
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

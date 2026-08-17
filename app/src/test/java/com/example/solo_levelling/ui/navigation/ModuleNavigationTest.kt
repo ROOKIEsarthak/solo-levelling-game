@@ -2,19 +2,21 @@ package com.example.solo_levelling.ui.navigation
 
 import com.example.solo_levelling.domain.service.EnabledModules
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ModuleNavigationTest {
     @Test
-    fun p_allModulesEnabled_includesAllPrimaryTabs() {
+    fun p_buildMainTabs_isSovereignFiveTabShell() {
         val tabs = buildMainTabs(EnabledModules(career = true, workout = true, diet = true))
         assertEquals(
             listOf(
                 AppRoute.Dashboard,
-                AppRoute.Career,
-                AppRoute.Fitness,
-                AppRoute.Nutrition,
+                AppRoute.Quests,
+                AppRoute.Analytics,
+                AppRoute.Character,
                 AppRoute.More,
             ),
             tabs,
@@ -22,15 +24,11 @@ class ModuleNavigationTest {
     }
 
     @Test
-    fun p_careerOnly_showsHomeCareerMore() {
-        val tabs = buildMainTabs(EnabledModules(career = true, workout = false, diet = false))
-        assertEquals(listOf(AppRoute.Dashboard, AppRoute.Career, AppRoute.More), tabs)
-    }
-
-    @Test
-    fun n_noModules_showsHomeAndMoreOnly() {
+    fun e_buildMainTabs_ignoresDisabledModules() {
         val tabs = buildMainTabs(EnabledModules())
-        assertEquals(listOf(AppRoute.Dashboard, AppRoute.More), tabs)
+        assertEquals(5, tabs.size)
+        assertFalse(tabs.contains(AppRoute.Career))
+        assertFalse(tabs.contains(AppRoute.Fitness))
     }
 
     @Test
@@ -58,5 +56,57 @@ class ModuleNavigationTest {
             EnabledModules(),
         )
         assertNull(redirect)
+    }
+
+    @Test
+    fun p_selectedPrimaryRoute_progressFamily() {
+        assertEquals(AppRoute.Analytics.route, selectedPrimaryRoute(AppRoute.History.route))
+        assertEquals(AppRoute.Analytics.route, selectedPrimaryRoute(AppRoute.Achievements.route))
+    }
+
+    @Test
+    fun p_selectedPrimaryRoute_moreFamily() {
+        assertEquals(AppRoute.More.route, selectedPrimaryRoute(AppRoute.Settings.route))
+        assertEquals(AppRoute.More.route, selectedPrimaryRoute(AppRoute.Fitness.route))
+    }
+
+    @Test
+    fun p_sovereignTabLabel_characterIsSelf() {
+        assertEquals("SELF", sovereignTabLabel(AppRoute.Character))
+    }
+
+    @Test
+    fun p_sovereignTabLabel_progressIsShort() {
+        assertEquals("PROGRESS", sovereignTabLabel(AppRoute.Analytics))
+        assertTrue(sovereignTabLabel(AppRoute.Analytics).length <= MAX_SOVEREIGN_TAB_LABEL_LENGTH)
+    }
+
+    @Test
+    fun e_sovereignTabLabels_fitNavigationBar() {
+        buildMainTabs(EnabledModules()).forEach { route ->
+            val label = sovereignTabLabel(route)
+            assertTrue(
+                "Label '$label' for $route exceeds $MAX_SOVEREIGN_TAB_LABEL_LENGTH chars",
+                label.length <= MAX_SOVEREIGN_TAB_LABEL_LENGTH,
+            )
+            assertFalse(label.contains(' '))
+        }
+    }
+
+    @Test
+    fun n_sovereignTabLabel_neverUsesCharacterWord() {
+        buildMainTabs(EnabledModules()).forEach { route ->
+            assertFalse(
+                "Label for $route must not use CHARACTER (wraps on 5-tab bar)",
+                sovereignTabLabel(route).contains("CHARACTER"),
+            )
+        }
+    }
+
+    @Test
+    fun n_showBottomBar_hidesOnboarding() {
+        assertFalse(showBottomBarForRoute(AppRoute.Onboarding.route))
+        assertTrue(showBottomBarForRoute(AppRoute.Dashboard.route))
+        assertTrue(showBottomBarForRoute(AppRoute.Settings.route))
     }
 }

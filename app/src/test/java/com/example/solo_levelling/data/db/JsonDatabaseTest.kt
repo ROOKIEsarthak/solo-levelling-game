@@ -124,8 +124,23 @@ class JsonDatabaseTest {
         val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)!!
         assertEquals("CustomHunter", profile.name)
         assertEquals(0, profile.totalXp)
-        assertEquals(true, profile.onboardingDone)
+        assertEquals(false, profile.onboardingDone)
         assertEquals("career,fitness", profile.prioritiesCsv)
+    }
+
+    @Test
+    fun r_clearProgressTables_clearsOnboardingDoneEvenWhenPreviouslyTrue() = runTest {
+        db.playerDao().upsertProfile(
+            PlayerProfileEntity(
+                name = "Wiped",
+                onboardingDone = true,
+                createdAtEpochMs = 1L,
+            ),
+        )
+
+        db.clearProgressTables()
+
+        assertEquals(false, db.playerDao().getProfile(SystemDefaults.PLAYER_ID)!!.onboardingDone)
     }
 
     @Test

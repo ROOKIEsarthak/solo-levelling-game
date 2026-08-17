@@ -6,23 +6,32 @@ import org.junit.Test
 
 class CascadiaTypographyTest {
     @Test
-    fun p_allTypographySlotsUseCascadiaCode() {
-        val styles = allTypographyStyles()
-        assertEquals(15, styles.size)
-        styles.forEach { style ->
-            assertEquals(CascadiaCode, style.fontFamily)
+    fun p_humanSlotsUseInter() {
+        allInterTypographyStyles().forEach { style ->
+            assertEquals(Inter, style.fontFamily)
+        }
+    }
+
+    @Test
+    fun p_systemLabelSlotsUseJetBrainsMono() {
+        allMonoTypographyStyles().forEach { style ->
+            assertEquals(JetBrainsMono, style.fontFamily)
         }
     }
 
     @Test
     fun n_defaultMaterialTypographyIsNotUsedAsAppTypography() {
-        // App Typography must not leave bodyLarge on platform Default.
-        assertTrue(Typography.bodyLarge.fontFamily === CascadiaCode)
+        assertTrue(Typography.bodyLarge.fontFamily === Inter)
+        assertTrue(Typography.labelMedium.fontFamily === JetBrainsMono)
     }
 
     @Test
-    fun e_everySlotSharesSameFontFamilyInstance() {
-        val families = allTypographyStyles().map { it.fontFamily }.distinct()
-        assertEquals(listOf(CascadiaCode), families)
+    fun e_cascadiaAliasMapsToMono() {
+        assertEquals(JetBrainsMono, CascadiaCode)
+    }
+
+    @Test
+    fun e_allTypographyStylesCount() {
+        assertEquals(15, allTypographyStyles().size)
     }
 }

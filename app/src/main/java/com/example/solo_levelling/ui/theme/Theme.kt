@@ -4,37 +4,40 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+
+private val SurfaceHighest = Color(0xFF32353C)
 
 val DarkColorScheme = darkColorScheme(
     primary = SystemPrimary,
     onPrimary = SystemOnPrimary,
-    primaryContainer = SystemAccent,
-    onPrimaryContainer = SystemForeground,
+    primaryContainer = SystemPrimaryContainer,
+    onPrimaryContainer = SystemOnPrimaryContainer,
     secondary = SystemSecondary,
-    onSecondary = SystemOnPrimary,
-    secondaryContainer = SystemMuted,
-    onSecondaryContainer = SystemForeground,
+    onSecondary = SystemOnSecondary,
+    secondaryContainer = SystemSecondaryContainer,
+    onSecondaryContainer = SystemSecondary,
     tertiary = SystemTertiary,
-    onTertiary = SystemOnPrimary,
-    tertiaryContainer = SystemAccent,
-    onTertiaryContainer = SystemForeground,
+    onTertiary = SystemOnTertiary,
+    tertiaryContainer = SystemTertiaryContainer,
+    onTertiaryContainer = SystemOnTertiary,
     background = SystemBackground,
     onBackground = SystemForeground,
-    surface = SystemSecondaryBackground,
+    surface = SystemSurface2,
     onSurface = SystemForeground,
-    surfaceVariant = SystemSurface,
+    surfaceVariant = SystemMuted,
     onSurfaceVariant = SystemMutedForeground,
-    surfaceContainerLowest = SystemBackground,
-    surfaceContainerLow = SystemSidebar,
+    surfaceContainerLowest = SystemSecondaryBackground,
+    surfaceContainerLow = SystemAccent,
     surfaceContainer = SystemSurface,
-    surfaceContainerHigh = SystemSurface2,
-    surfaceContainerHighest = SystemMuted,
-    outline = SystemOutline,
-    outlineVariant = SystemMuted,
+    surfaceContainerHigh = SystemMuted,
+    surfaceContainerHighest = SurfaceHighest,
+    outline = SystemOutlineSolid,
+    outlineVariant = SystemOutlineVariant,
     error = SystemError,
     onError = SystemOnError,
     errorContainer = SystemError.copy(alpha = 0.25f),
-    onErrorContainer = SystemOnError,
+    onErrorContainer = SystemError,
     inverseSurface = SystemForeground,
     inverseOnSurface = SystemBackground,
     inversePrimary = LightPrimary,
@@ -47,7 +50,7 @@ private val LightColorScheme = lightColorScheme(
     tertiary = LightTertiary,
 )
 
-/** Fixed dark SYSTEM palette — wallpaper dynamic color is intentionally off. */
+/** Fixed dark Sovereign OS palette — wallpaper dynamic color is intentionally off. */
 @Composable
 fun SololevellingTheme(
     darkTheme: Boolean = true,

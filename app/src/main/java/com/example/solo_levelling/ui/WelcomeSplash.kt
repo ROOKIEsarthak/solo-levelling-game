@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -37,10 +38,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.solo_levelling.R
-import com.example.solo_levelling.ui.theme.CascadiaCode
 import com.example.solo_levelling.ui.theme.GlowCyan
 import com.example.solo_levelling.ui.theme.GlowPurple
+import com.example.solo_levelling.ui.theme.JetBrainsMono
 import com.example.solo_levelling.ui.theme.SplashBackground
+import com.example.solo_levelling.ui.theme.SystemSecondary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -59,6 +61,7 @@ fun WelcomeSplash() {
     val ariseAlpha = remember { Animatable(0f) }
     val ariseScale = remember { Animatable(0.55f) }
     val okiroAlpha = remember { Animatable(0f) }
+    val footerAlpha = remember { Animatable(0f) }
 
     DisposableEffect(Unit) {
         val appContext = context.applicationContext
@@ -109,6 +112,8 @@ fun WelcomeSplash() {
         }
         delay(400)
         okiroAlpha.animateTo(1f, tween(600, easing = FastOutSlowInEasing))
+        delay(800)
+        footerAlpha.animateTo(1f, tween(500, easing = FastOutSlowInEasing))
     }
 
     val pulse = rememberInfiniteTransition(label = "glow")
@@ -144,6 +149,17 @@ fun WelcomeSplash() {
                 radius = size.minDimension * 0.55f,
                 center = Offset(cx, cy),
             )
+            // CRT scanline approximation
+            var y = 0f
+            while (y < size.height) {
+                drawLine(
+                    color = Color.White.copy(alpha = 0.03f),
+                    start = Offset(0f, y),
+                    end = Offset(size.width, y),
+                    strokeWidth = 1f,
+                )
+                y += 4f
+            }
         }
 
         Column(
@@ -159,7 +175,7 @@ fun WelcomeSplash() {
                 },
                 color = Color.White,
                 fontSize = 52.sp,
-                fontFamily = CascadiaCode,
+                fontFamily = JetBrainsMono,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 8.sp,
                 style = TextStyle(
@@ -173,18 +189,30 @@ fun WelcomeSplash() {
             Text(
                 text = "起きろ",
                 modifier = Modifier.graphicsLayer { alpha = okiroAlpha.value },
-                color = GlowCyan,
+                color = SystemSecondary,
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Medium,
                 letterSpacing = 4.sp,
                 style = TextStyle(
                     shadow = Shadow(
-                        color = GlowCyan.copy(alpha = 0.7f),
+                        color = SystemSecondary.copy(alpha = 0.7f),
                         offset = Offset(0f, 0f),
                         blurRadius = 18f,
                     ),
                 ),
             )
         }
+
+        Text(
+            text = "[ SYS_INIT_SEQ : AWAITING_INPUT ]",
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 48.dp)
+                .graphicsLayer { alpha = footerAlpha.value },
+            color = GlowCyan.copy(alpha = 0.7f),
+            fontSize = 12.sp,
+            fontFamily = JetBrainsMono,
+            letterSpacing = 1.sp,
+        )
     }
 }

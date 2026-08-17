@@ -1,5 +1,7 @@
 package com.example.solo_levelling.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,18 +13,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.Restaurant
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -42,10 +43,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -75,10 +80,18 @@ import com.example.solo_levelling.ui.more.MoreScreen
 import com.example.solo_levelling.ui.navigation.AppRoute
 import com.example.solo_levelling.ui.navigation.buildMainTabs
 import com.example.solo_levelling.ui.navigation.redirectForDisabledModuleRoute
+import com.example.solo_levelling.ui.navigation.selectedPrimaryRoute
+import com.example.solo_levelling.ui.navigation.showBottomBarForRoute
+import com.example.solo_levelling.ui.navigation.sovereignTabLabel
 import com.example.solo_levelling.ui.onboarding.OnboardingScreen
 import com.example.solo_levelling.ui.quests.QuestsScreen
 import com.example.solo_levelling.ui.settings.SettingsScreen
 import com.example.solo_levelling.ui.streak.StreakRecoveryHost
+import com.example.solo_levelling.ui.components.CyberProgressBar
+import com.example.solo_levelling.ui.theme.JetBrainsMono
+import com.example.solo_levelling.ui.theme.SystemPrimary
+import com.example.solo_levelling.ui.theme.SystemPrimaryContainer
+import com.example.solo_levelling.ui.theme.SystemSurface2
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -117,8 +130,8 @@ fun SoloLevellingAppRoot(container: AppContainer) {
     ).collectAsStateWithLifecycle(initialValue = EnabledModules())
 
     val tabItems = remember(modules) { buildTabItems(modules) }
-    val primaryRoutes = tabItems.map { it.route.route }
-    val showBar = current in primaryRoutes
+    val showBar = showBottomBarForRoute(current)
+    val selectedTab = selectedPrimaryRoute(current)
     val snackbarHostState = remember { SnackbarHostState() }
     val showMessage: (String) -> Unit = { message ->
         scope.launch { snackbarHostState.showSnackbar(message) }
@@ -171,46 +184,38 @@ fun SoloLevellingAppRoot(container: AppContainer) {
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             if (showBar && current == AppRoute.Dashboard.route) {
-                Box {
-                    FloatingActionButton(
-                        onClick = { fabExpanded = true },
-                        containerColor = colors.primary,
-                        contentColor = colors.onPrimary,
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Quick actions")
-                    }
-                    DropdownMenu(expanded = fabExpanded, onDismissRequest = { fabExpanded = false }) {
-                        DropdownMenuItem(
-                            text = { Text("+ Add Task") },
-                            onClick = {
-                                fabExpanded = false
-                                navController.navigate(AppRoute.Quests.route)
-                            },
-                        )
+                Column(horizontalAlignment = Alignment.End) {
+                    if (fabExpanded) {
+                        FabDialItem("[ ADD TASK ]") {
+                            fabExpanded = false
+                            navController.navigate(AppRoute.Quests.route)
+                        }
                         if (modules.workout) {
-                            DropdownMenuItem(
-                                text = { Text("+ Log Workout") },
-                                onClick = {
-                                    fabExpanded = false
-                                    navController.navigate(AppRoute.Fitness.route)
-                                },
-                            )
+                            FabDialItem("[ LOG WORKOUT ]") {
+                                fabExpanded = false
+                                navController.navigate(AppRoute.Fitness.route)
+                            }
                         }
                         if (modules.diet) {
-                            DropdownMenuItem(
-                                text = { Text("+ Add Meal") },
-                                onClick = {
-                                    fabExpanded = false
-                                    navController.navigate(AppRoute.Nutrition.route)
-                                },
-                            )
-                        }
-                        DropdownMenuItem(
-                            text = { Text("+ Add Weight") },
-                            onClick = {
+                            FabDialItem("[ ADD MEAL ]") {
                                 fabExpanded = false
-                                navController.navigate(AppRoute.Modules.route)
-                            },
+                                navController.navigate(AppRoute.Nutrition.route)
+                            }
+                        }
+                        FabDialItem("[ ADD WEIGHT ]") {
+                            fabExpanded = false
+                            navController.navigate(AppRoute.Modules.route)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    FloatingActionButton(
+                        onClick = { fabExpanded = !fabExpanded },
+                        containerColor = SystemPrimaryContainer,
+                        contentColor = Color(0xFF05070D),
+                    ) {
+                        Icon(
+                            if (fabExpanded) Icons.Default.Close else Icons.Default.Add,
+                            contentDescription = "Quick actions",
                         )
                     }
                 }
@@ -223,7 +228,7 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                     contentColor = colors.onSurface,
                 ) {
                     tabItems.forEach { tab ->
-                        val selected = current == tab.route.route
+                        val selected = selectedTab == tab.route.route
                         NavigationBarItem(
                             selected = selected,
                             onClick = {
@@ -236,7 +241,15 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                                 }
                             },
                             icon = { Icon(tab.icon, contentDescription = tab.label) },
-                            label = { Text(tab.label) },
+                            label = {
+                                Text(
+                                    text = tab.label,
+                                    style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = colors.primary,
                                 selectedTextColor = colors.primary,
@@ -269,7 +282,7 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                         style = MaterialTheme.typography.labelMedium,
                     )
                     tabItems.forEach { tab ->
-                        val selected = current == tab.route.route
+                        val selected = selectedTab == tab.route.route
                         NavigationRailItem(
                             selected = selected,
                             onClick = {
@@ -282,7 +295,15 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                                 }
                             },
                             icon = { Icon(tab.icon, contentDescription = tab.label) },
-                            label = { Text(tab.label) },
+                            label = {
+                                Text(
+                                    text = tab.label,
+                                    style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
                             colors = NavigationRailItemDefaults.colors(
                                 selectedIconColor = colors.primary,
                                 selectedTextColor = colors.primary,
@@ -294,7 +315,12 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                     }
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = { navController.navigate(AppRoute.Settings.route) }) {
-                        Text("Settings")
+                        Text(
+                            "Settings",
+                            fontFamily = JetBrainsMono,
+                            color = SystemPrimary,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
                     }
                     Column(
                         Modifier
@@ -308,13 +334,10 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                             fontWeight = FontWeight.Bold,
                             style = MaterialTheme.typography.labelSmall,
                         )
-                        LinearProgressIndicator(
-                            progress = { xpProgress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(4.dp),
-                            color = colors.primary,
-                            trackColor = colors.surfaceContainerHighest,
+                        CyberProgressBar(
+                            progress = xpProgress,
+                            modifier = Modifier.fillMaxWidth(),
+                            height = 4.dp,
                         )
                     }
                 }
@@ -341,6 +364,7 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                             onOpenNutrition = { navController.navigate(AppRoute.Nutrition.route) },
                             onOpenMissions = { navController.navigate(AppRoute.Quests.route) },
                             onOpenCareer = { navController.navigate(AppRoute.Career.route) },
+                            onOpenCharacter = { navController.navigate(AppRoute.Character.route) },
                             onMessage = showMessage,
                         )
                     }
@@ -388,6 +412,12 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                             onOpenLife = { navController.navigate(AppRoute.Modules.route) },
                             onOpenAchievements = { navController.navigate(AppRoute.Achievements.route) },
                             onOpenSettings = { navController.navigate(AppRoute.Settings.route) },
+                            onOpenCareer = { navController.navigate(AppRoute.Career.route) },
+                            onOpenWorkout = { navController.navigate(AppRoute.Fitness.route) },
+                            onOpenNutrition = { navController.navigate(AppRoute.Nutrition.route) },
+                            showCareer = modules.career,
+                            showWorkout = modules.workout,
+                            showDiet = modules.diet,
                         )
                     }
                     composable(AppRoute.Settings.route) {
@@ -395,7 +425,7 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                             container = container,
                             onMessage = showMessage,
                             onResetComplete = {
-                                navController.navigate(AppRoute.Dashboard.route) {
+                                navController.navigate(AppRoute.Onboarding.route) {
                                     popUpTo(0) { inclusive = true }
                                 }
                             },
@@ -420,12 +450,29 @@ private data class TabItem(val route: AppRoute, val label: String, val icon: Ima
 
 private fun buildTabItems(modules: EnabledModules): List<TabItem> =
     buildMainTabs(modules).map { route ->
+        val label = sovereignTabLabel(route)
         when (route) {
-            AppRoute.Dashboard -> TabItem(route, "Home", Icons.Default.Home)
-            AppRoute.Career -> TabItem(route, "Career", Icons.Default.Star)
-            AppRoute.Fitness -> TabItem(route, "Workout", Icons.Default.FitnessCenter)
-            AppRoute.Nutrition -> TabItem(route, "Diet", Icons.Default.Restaurant)
-            AppRoute.More -> TabItem(route, "More", Icons.Default.MoreHoriz)
-            else -> TabItem(route, route.route, Icons.Default.Home)
+            AppRoute.Dashboard -> TabItem(route, label, Icons.Default.Home)
+            AppRoute.Quests -> TabItem(route, label, Icons.AutoMirrored.Filled.Assignment)
+            AppRoute.Analytics -> TabItem(route, label, Icons.Default.Analytics)
+            AppRoute.Character -> TabItem(route, label, Icons.Default.Person)
+            AppRoute.More -> TabItem(route, label, Icons.Default.MoreHoriz)
+            else -> TabItem(route, label, Icons.Default.Home)
         }
     }
+
+@Composable
+private fun FabDialItem(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        modifier = Modifier
+            .padding(bottom = 8.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(SystemSurface2.copy(alpha = 0.95f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        color = SystemPrimary,
+        fontFamily = JetBrainsMono,
+        style = MaterialTheme.typography.labelMedium,
+    )
+}

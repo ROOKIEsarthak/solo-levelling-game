@@ -1,26 +1,46 @@
 package com.example.solo_levelling.ui.history
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.solo_levelling.AppContainer
+import com.example.solo_levelling.ui.components.BracketLabel
+import com.example.solo_levelling.ui.components.EnergyFieldBackground
+import com.example.solo_levelling.ui.components.GhostTextButton
+import com.example.solo_levelling.ui.components.GlassLevel
+import com.example.solo_levelling.ui.components.GlassSurface
+import com.example.solo_levelling.ui.components.SystemIdleEmpty
+import com.example.solo_levelling.ui.components.SystemSectionHeader
+import com.example.solo_levelling.ui.theme.JetBrainsMono
+import com.example.solo_levelling.ui.theme.Spacing
+import com.example.solo_levelling.ui.theme.SystemPrimary
+import com.example.solo_levelling.ui.theme.SystemSecondary
+import com.example.solo_levelling.ui.theme.SystemSurface
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -37,72 +57,146 @@ fun HistoryScreen(
     val colors = MaterialTheme.colorScheme
     val dateFmt = DateTimeFormatter.ofPattern("MMM d, HH:mm")
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text("History", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+    Box(Modifier.fillMaxSize()) {
+        EnergyFieldBackground(Modifier.fillMaxSize())
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(Spacing.screen),
+            verticalArrangement = Arrangement.spacedBy(Spacing.section),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
+                SystemSectionHeader(tag = "ACTIVITY LOG")
+                Text(
+                    "Recent XP, workouts, and quick links",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant,
+                )
+            }
 
-        HistoryCard(title = "Recent XP") {
-            if (recentXp.isEmpty()) {
-                Text("No XP entries yet.", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-            } else {
-                recentXp.forEach { entry ->
-                    val whenStr = Instant.ofEpochMilli(entry.createdAtEpochMs)
-                        .atZone(ZoneId.systemDefault())
-                        .format(dateFmt)
-                    Text(
-                        "+${entry.amount} XP · ${entry.sourceType} · $whenStr",
-                        style = MaterialTheme.typography.bodySmall,
+        SystemSectionHeader(tag = "RECENT XP")
+
+        if (recentXp.isEmpty()) {
+            SystemIdleEmpty(
+                title = "NO XP ENTRIES",
+                subtitle = "Complete quests and missions to populate the system log.",
+            )
+        } else {
+            recentXp.forEach { entry ->
+                val whenStr = Instant.ofEpochMilli(entry.createdAtEpochMs)
+                    .atZone(ZoneId.systemDefault())
+                    .format(dateFmt)
+                AccentLogCard(
+                    accent = SystemPrimary,
+                    borderAccent = SystemPrimary.copy(alpha = 0.3f),
+                ) {
+                    LogEntryRow(
+                        title = entry.sourceType.replace('_', ' '),
+                        subtitle = whenStr,
+                        xpLabel = "+${entry.amount} XP",
+                        xpColor = SystemPrimary,
                     )
                 }
             }
         }
 
-        HistoryCard(title = "Quick links") {
-            Text(
-                "Open Workout history",
-                color = colors.primary,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.clickable(onClick = onOpenWorkout),
-            )
-            Text(
-                "Open Diet history",
-                color = colors.primary,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.clickable(onClick = onOpenDiet),
-            )
+        GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                SystemSectionHeader(tag = "QUICK LINKS")
+                GhostTextButton(label = "OPEN WORKOUT HISTORY", onClick = onOpenWorkout)
+                GhostTextButton(label = "OPEN DIET HISTORY", onClick = onOpenDiet)
+            }
         }
 
-        HistoryCard(title = "Recent workouts") {
-            if (recentWorkouts.isEmpty()) {
-                Text("No workouts logged yet.", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-            } else {
-                recentWorkouts.forEach { log ->
-                    Text(
-                        "${log.date} · ${log.workoutName.ifBlank { "Workout" }} · ${log.durationMinutes} min",
-                        style = MaterialTheme.typography.bodySmall,
+        SystemSectionHeader(tag = "RECENT WORKOUTS")
+
+        if (recentWorkouts.isEmpty()) {
+            SystemIdleEmpty(
+                title = "NO WORKOUTS LOGGED",
+                subtitle = "Training sessions will appear here once recorded.",
+                actionLabel = "OPEN WORKOUT",
+                onAction = onOpenWorkout,
+            )
+        } else {
+            recentWorkouts.forEach { log ->
+                AccentLogCard(
+                    accent = SystemSecondary,
+                    borderAccent = SystemSecondary.copy(alpha = 0.35f),
+                ) {
+                    LogEntryRow(
+                        title = log.workoutName.ifBlank { "Workout" },
+                        subtitle = "${log.date} · ${log.durationMinutes} min",
+                        xpLabel = "SESSION",
+                        xpColor = SystemSecondary,
                     )
                 }
             }
+        }
         }
     }
 }
 
 @Composable
-private fun HistoryCard(title: String, content: @Composable () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
-        border = BorderStroke(1.dp, colors.outline),
+private fun AccentLogCard(
+    accent: Color,
+    borderAccent: Color,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(SystemSurface.copy(alpha = 0.4f))
+            .border(1.dp, borderAccent, shape),
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .width(3.dp)
+                .heightIn(min = 72.dp)
+                .fillMaxHeight()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(accent, accent.copy(alpha = 0f)),
+                    ),
+                ),
+        )
+        Box(Modifier.padding(start = 12.dp, top = 14.dp, end = 16.dp, bottom = 14.dp)) {
             content()
         }
+    }
+}
+
+@Composable
+private fun LogEntryRow(
+    title: String,
+    subtitle: String,
+    xpLabel: String,
+    xpColor: Color,
+) {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Medium,
+                color = colors.onSurface,
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = JetBrainsMono,
+                color = colors.onSurfaceVariant,
+            )
+        }
+        BracketLabel(text = xpLabel, color = xpColor)
     }
 }

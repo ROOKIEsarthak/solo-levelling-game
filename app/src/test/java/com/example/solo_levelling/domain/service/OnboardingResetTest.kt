@@ -66,7 +66,7 @@ class OnboardingResetTest {
         assertEquals(0, profile.totalXp)
         assertEquals(1, profile.level)
         assertEquals("Hunter", profile.name)
-        assertTrue(profile.onboardingDone)
+        assertEquals(false, profile.onboardingDone)
         assertEquals("career", profile.prioritiesCsv)
         assertEquals(0, db.xpDao().sumXp())
         assertTrue(db.playerDao().getAttributes().all { it.currentValue == 0 })
@@ -105,5 +105,16 @@ class OnboardingResetTest {
         assertEquals(0, streak.current)
         assertEquals(0, streak.best)
         assertTrue(db.achievementDao().getUnlocked().isEmpty())
+    }
+
+    @Test
+    fun r_resetAllProgress_clearsOnboardingFlag() = runTest {
+        onboarding.ensureSeeded()
+        onboarding.completeOnboarding("Hunter", listOf("career"))
+        assertTrue(db.playerDao().getProfile(SystemDefaults.PLAYER_ID)!!.onboardingDone)
+
+        onboarding.resetAllProgress()
+
+        assertEquals(false, db.playerDao().getProfile(SystemDefaults.PLAYER_ID)!!.onboardingDone)
     }
 }

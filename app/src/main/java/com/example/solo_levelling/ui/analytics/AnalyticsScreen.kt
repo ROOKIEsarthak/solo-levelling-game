@@ -1,20 +1,19 @@
 package com.example.solo_levelling.ui.analytics
 
 import android.content.Intent
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,11 +23,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.core.config.SystemDefaults
 import com.example.solo_levelling.data.db.entity.PlayerProfileEntity
@@ -37,8 +37,20 @@ import com.example.solo_levelling.data.db.entity.StreakStateEntity
 import com.example.solo_levelling.domain.service.BeforeVsNow
 import com.example.solo_levelling.domain.service.ImprovementSnapshot
 import com.example.solo_levelling.domain.service.WeeklyReview
-import com.example.solo_levelling.ui.theme.GlowCyan
+import com.example.solo_levelling.ui.components.BracketLabel
+import com.example.solo_levelling.ui.components.EnergyFieldBackground
+import com.example.solo_levelling.ui.components.GlassLevel
+import com.example.solo_levelling.ui.components.GlassSurface
+import com.example.solo_levelling.ui.components.LoadingSkeleton
+import com.example.solo_levelling.ui.components.SystemActionButton
+import com.example.solo_levelling.ui.components.SystemSectionHeader
+import com.example.solo_levelling.ui.theme.JetBrainsMono
+import com.example.solo_levelling.ui.theme.Spacing
+import com.example.solo_levelling.ui.theme.SystemPrimary
+import com.example.solo_levelling.ui.theme.SystemSecondary
 import com.example.solo_levelling.ui.theme.SystemSuccess
+import com.example.solo_levelling.ui.theme.SystemSurface
+import com.example.solo_levelling.ui.theme.SystemTertiary
 import kotlinx.coroutines.launch
 
 @Composable
@@ -52,182 +64,318 @@ fun AnalyticsScreen(
     var profile by remember { mutableStateOf<PlayerProfileEntity?>(null) }
     var streak by remember { mutableStateOf<StreakStateEntity?>(null) }
     var activeSeason by remember { mutableStateOf<SeasonEntity?>(null) }
+    var loading by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val colors = MaterialTheme.colorScheme
 
     LaunchedEffect(Unit) {
+        loading = true
         review = container.analytics.weeklyReview()
         improvement = container.analytics.improvementSnapshot()
         beforeVsNow = container.analytics.beforeVsNow()
         profile = container.db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
         streak = container.db.playerDao().getStreak(SystemDefaults.PLAYER_ID)
         activeSeason = container.season.ensureActiveSeason()
+        loading = false
     }
 
-    val p = profile
-    val xpInto = if (p == null) 0 else p.totalXp - SystemDefaults.totalXpForLevel(p.level)
-    val xpNeed = if (p == null) 1 else SystemDefaults.xpForNextLevel(p.level)
-    val xpProgress = (xpInto.toFloat() / xpNeed.toFloat()).coerceIn(0f, 1f)
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text("YOUR PROGRESS", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        activeSeason?.let { s ->
-            Text(
-                "${s.name} · ${s.seasonXp} season XP",
-                color = colors.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
-            border = BorderStroke(1.dp, colors.primary.copy(alpha = 0.35f)),
+    Box(Modifier.fillMaxSize()) {
+        EnergyFieldBackground(Modifier.fillMaxSize())
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(Spacing.screen),
+            verticalArrangement = Arrangement.spacedBy(Spacing.section),
         ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
+                SystemSectionHeader(tag = "REFLECTION")
                 Text(
-                    "LEVEL ${p?.level ?: 1}",
-                    color = colors.primary,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 2.sp,
+                    "A quiet look at how your week is unfolding.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurfaceVariant,
                 )
-                Text("$xpInto / $xpNeed XP", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
-                LinearProgressIndicator(
-                    progress = { xpProgress },
-                    modifier = Modifier.fillMaxWidth().height(8.dp),
-                    color = GlowCyan,
-                    trackColor = colors.surfaceContainerHighest,
-                )
-            }
-        }
-
-        improvement?.let { snap ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
-                border = BorderStroke(1.dp, colors.outline),
-            ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("PERIOD SCORES", fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                    Text("NOW  ${snap.current.score}/100", color = SystemSuccess, fontWeight = FontWeight.Bold)
+                activeSeason?.let { s ->
                     Text(
-                        "BEFORE  ${snap.previous.score}/100",
+                        "${s.name} · ${s.seasonXp} season XP",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = JetBrainsMono,
                         color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
                     )
-                    val pct = snap.improvementPercent
-                    if (pct != null) {
-                        Text(
-                            "YOU ARE ${"%.1f".format(pct)}%\nBETTER THAN BEFORE.",
-                            fontWeight = FontWeight.Bold,
-                            color = GlowCyan,
-                        )
-                    } else {
-                        Text(
-                            "BUILDING YOUR BASELINE\nKeep showing up.\nYour improvement score will appear once enough data has been collected.",
-                            color = colors.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
                 }
             }
-        }
 
-        beforeVsNow?.let { b ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerHigh),
-                border = BorderStroke(1.dp, colors.outline),
-            ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("BEFORE VS NOW", fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                    CompareRow(
-                        "Task completion",
-                        "${(b.taskCompletionBefore * 100).toInt()}%",
-                        "${(b.taskCompletionNow * 100).toInt()}%",
-                    )
-                    CompareRow(
-                        "Workout days / week",
-                        "${b.workoutDaysBefore}",
-                        "${b.workoutDaysNow}",
-                    )
-                    CompareRow(
-                        "DSA solved / week",
-                        "${b.dsaSolvedBefore}",
-                        "${b.dsaSolvedNow}",
-                    )
-                    b.dietAdherenceBefore?.let { before ->
-                        b.dietAdherenceNow?.let { now ->
-                            CompareRow("Diet adherence", "$before%", "$now%")
+            if (loading) {
+                LoadingSkeleton(lines = 4)
+                LoadingSkeleton(lines = 3)
+            } else {
+                review?.let { r ->
+                    GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level2) {
+                        Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                            SystemSectionHeader(tag = "THIS WEEK")
+                            Text(
+                                "${r.weekStart} → ${r.weekEnd}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = JetBrainsMono,
+                                color = colors.onSurfaceVariant,
+                            )
+                            MetricLine(
+                                label = "Quests",
+                                value = "${r.questsCompleted} / ${r.questsTotal} done",
+                            )
+                            MetricLine(
+                                label = "Completion",
+                                value = formatCompletionRate(r.completionRate),
+                            )
+                            MetricLine(label = "XP earned", value = "${r.xpEarned}")
+                            MetricLine(label = "Workouts", value = "${r.workoutCountWeek} sessions")
+                            MetricLine(label = "Streak", value = "${streak?.current ?: 0} days")
+                            MetricLine(
+                                label = "Personal score",
+                                value = "${r.personalScore}/100",
+                                highlight = true,
+                            )
+                            r.bossProgress?.let { boss ->
+                                MetricLine(
+                                    label = "Boss · ${boss.title}",
+                                    value = "${boss.current.toInt()} / ${boss.target.toInt()}",
+                                )
+                            }
+                            if (r.recommendations.isNotEmpty()) {
+                                Spacer(Modifier.height(Spacing.xxs))
+                                Text(
+                                    "Notes for you",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontFamily = JetBrainsMono,
+                                    color = colors.onSurfaceVariant,
+                                )
+                                r.recommendations.forEach { rec ->
+                                    Text(
+                                        "· $rec",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = colors.onSurfaceVariant,
+                                    )
+                                }
+                            }
                         }
                     }
-                    if (b.weightBefore != null && b.weightNow != null) {
-                        CompareRow(
-                            "Weight (kg)",
-                            "%.1f".format(b.weightBefore),
-                            "%.1f".format(b.weightNow),
-                        )
+                }
+
+                improvement?.let { snap ->
+                    GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
+                        Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                            SystemSectionHeader(tag = "WEEK OVER WEEK")
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                            ) {
+                                ScoreBlock(
+                                    label = "This week",
+                                    score = snap.current.score,
+                                    accent = SystemSuccess,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                ScoreBlock(
+                                    label = "Last week",
+                                    score = snap.previous.score,
+                                    accent = colors.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            val pct = snap.improvementPercent
+                            if (pct != null) {
+                                Text(
+                                    improvementCopy(pct),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = SystemTertiary,
+                                )
+                            } else {
+                                Text(
+                                    "Still gathering a baseline — keep showing up and this will take shape.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = colors.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
-                    CompareRow(
-                        "Streak",
-                        "${b.streakBest} days (best)",
-                        "${b.streakCurrent} days (current)",
+                }
+
+                beforeVsNow?.let { b ->
+                    GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
+                        Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                            SystemSectionHeader(tag = "BEFORE VS NOW", accent = SystemSecondary)
+                            CompareRow(
+                                label = "Task completion",
+                                before = formatCompletionRate(b.taskCompletionBefore),
+                                now = formatCompletionRate(b.taskCompletionNow),
+                            )
+                            CompareRow(
+                                label = "Workout days / week",
+                                before = "${b.workoutDaysBefore}",
+                                now = "${b.workoutDaysNow}",
+                            )
+                            CompareRow(
+                                label = "DSA solved / week",
+                                before = "${b.dsaSolvedBefore}",
+                                now = "${b.dsaSolvedNow}",
+                            )
+                            b.dietAdherenceBefore?.let { before ->
+                                b.dietAdherenceNow?.let { now ->
+                                    CompareRow(label = "Diet adherence", before = "$before%", now = "$now%")
+                                }
+                            }
+                            if (b.weightBefore != null && b.weightNow != null) {
+                                CompareRow(
+                                    label = "Weight (kg)",
+                                    before = "%.1f".format(b.weightBefore),
+                                    now = "%.1f".format(b.weightNow),
+                                )
+                            }
+                            CompareRow(
+                                label = "Streak",
+                                before = "${b.streakBest} days (best)",
+                                now = "${b.streakCurrent} days (current)",
+                            )
+                        }
+                    }
+                }
+
+                val bottomCode = review?.attributeSnapshot?.bottomCode
+                if (bottomCode != null) {
+                    GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
+                        Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                            SystemSectionHeader(tag = "NEXT FOCUS")
+                            Text(
+                                nextFocusCopy(bottomCode),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = colors.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+
+                profile?.let { p ->
+                    Text(
+                        "Level ${p.level} · ${p.rank} rank",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = JetBrainsMono,
+                        color = colors.onSurfaceVariant,
                     )
                 }
             }
-        }
 
-        review?.let { r ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
-                border = BorderStroke(1.dp, colors.outline),
-            ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("THIS WEEK", fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                    Text("TASKS  ${(r.completionRate * 100).toInt()}% completion")
-                    Text("WORKOUT  ${r.workoutCountWeek} sessions")
-                    Text("STREAK  ${streak?.current ?: 0} days")
-                    Text("Personal score  ${r.personalScore}/100", color = colors.primary)
-                    r.recommendations.forEach { Text("· $it", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant) }
-                }
-            }
-        }
-
-        Button(
-            onClick = {
-                scope.launch {
-                    val json = container.analytics.exportJson()
-                    val send = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, json)
+            SystemActionButton(
+                label = "EXPORT PROGRESS",
+                onClick = {
+                    scope.launch {
+                        val json = container.analytics.exportJson()
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, json)
+                        }
+                        context.startActivity(Intent.createChooser(send, "Export progress"))
+                        onMessage("Export ready")
                     }
-                    context.startActivity(Intent.createChooser(send, "Export progress"))
-                    onMessage("Export ready")
-                }
-            },
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-        ) {
-            Text("Export JSON")
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !loading,
+            )
         }
+    }
+}
+
+@Composable
+private fun ScoreBlock(
+    label: String,
+    score: Int,
+    accent: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(SystemSurface.copy(alpha = 0.35f))
+            .padding(Spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        BracketLabel(text = label.uppercase(), color = accent)
+        Text(
+            "$score/100",
+            style = MaterialTheme.typography.titleLarge,
+            fontFamily = JetBrainsMono,
+            fontWeight = FontWeight.Bold,
+            color = accent,
+        )
+    }
+}
+
+@Composable
+private fun MetricLine(label: String, value: String, highlight: Boolean = false) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            fontFamily = JetBrainsMono,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = JetBrainsMono,
+            fontWeight = if (highlight) FontWeight.Bold else FontWeight.Normal,
+            color = if (highlight) SystemPrimary else MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 
 @Composable
 private fun CompareRow(label: String, before: String, now: String) {
     val colors = MaterialTheme.colorScheme
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(SystemSurface.copy(alpha = 0.3f))
+            .padding(Spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            fontFamily = JetBrainsMono,
+            color = colors.onSurfaceVariant,
+        )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("BEFORE  $before", style = MaterialTheme.typography.bodyMedium)
-            Text("NOW  $now", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = SystemSuccess)
+            Column {
+                BracketLabel(text = "Before", color = colors.onSurfaceVariant)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    before,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontFamily = JetBrainsMono,
+                    color = colors.onSurfaceVariant,
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                BracketLabel(text = "Now", color = SystemSuccess)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    now,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontFamily = JetBrainsMono,
+                    fontWeight = FontWeight.Bold,
+                    color = SystemSuccess,
+                )
+            }
         }
     }
 }
+
+internal fun formatCompletionRate(rate: Float): String = "${(rate * 100).toInt()}%"
+
+internal fun improvementCopy(percent: Float): String =
+    "Your personal score moved about ${"%.1f".format(percent)}% compared to last week."
+
+internal fun nextFocusCopy(bottomCode: String): String =
+    "$bottomCode is your lowest attribute right now — one small quest there could help balance things."
