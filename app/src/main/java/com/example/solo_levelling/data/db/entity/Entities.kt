@@ -222,7 +222,17 @@ data class WorkoutLogEntity(
     val durationMinutes: Int = 0,
     val notes: String = "",
     val exercises: List<LoggedExerciseEntity> = emptyList(),
-)
+    /** "" | "ACTIVE_REST" | "COMPLETE_REST" */
+    val restKind: String = "",
+) {
+    fun isTrainingDayComplete(): Boolean =
+        !restKind.isNullOrBlank() || exercises.any { it.sets.isNotEmpty() }
+}
+
+object WorkoutRestKind {
+    const val ACTIVE_REST = "ACTIVE_REST"
+    const val COMPLETE_REST = "COMPLETE_REST"
+}
 
 data class NutritionTotalsEntity(
     val calories: Int = 0,

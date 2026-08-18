@@ -21,7 +21,9 @@ import com.example.solo_levelling.domain.service.NextAction
 import com.example.solo_levelling.domain.service.NextUnlock
 import com.example.solo_levelling.domain.service.EnabledModules
 import com.example.solo_levelling.domain.service.ModuleFlags
+import com.example.solo_levelling.domain.service.ModuleScope
 import com.example.solo_levelling.domain.service.PriorityEngine
+import com.example.solo_levelling.domain.model.QuestStatus
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -64,13 +66,47 @@ class DashboardViewModel(
         container.db.playerDao().observeAttributes()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val todayQuests: StateFlow<List<QuestInstanceEntity>> =
-        profile.flatMapLatest { p ->
-            val zone = runCatching { ZoneId.of(p?.timezone ?: ZoneId.systemDefault().id) }
-                .getOrDefault(ZoneId.systemDefault())
-            val today = container.clock.today(zone).format(dateFmt)
-            container.db.questDao().observeInstancesForDate(today)
+    val enabledModules: StateFlow<EnabledModules> =
+        ModuleFlags.observeEnabledModules(
+            container.db.playerDao().observeProfile(SystemDefaults.PLAYER_ID),
+            container.db.configDao(),
+        ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EnabledModules())
+
+    private val homeQuestItems: StateFlow<List<HomeQuestItem>> =
+        combine(
+            profile.flatMapLatest { p ->
+                val zone = runCatching { ZoneId.of(p?.timezone ?: ZoneId.systemDefault().id) }
+                    .getOrDefault(ZoneId.systemDefault())
+                val today = container.clock.today(zone).format(dateFmt)
+                container.db.questDao().observeInstancesForDate(today)
+            },
+            enabledModules,
+            container.db.questDao().observeTemplates(),
+        ) { quests, modules, templates ->
+            val tagsById = templates.associate { it.id to it.priorityTags }
+            val keysById = templates.associate { it.id to it.key }
+            HomeQuestPresentation.scopeForHome(
+                quests = quests,
+                tagsByTemplateId = tagsById,
+                keysByTemplateId = keysById,
+                allowsTemplate = { tags -> ModuleScope.allowsQuestTemplate(tags, modules) },
+            )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Today's DAILY + RECOVERY quests for enabled modules (same scope as Home UI count). */
+    val todayQuests: StateFlow<List<QuestInstanceEntity>> =
+        homeQuestItems
+            .map { items -> items.map { it.instance } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val homeQuestSections: StateFlow<HomeQuestSections> =
+        homeQuestItems
+            .map { HomeQuestPresentation.split(it) }
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                HomeQuestSections(emptyList(), emptyList(), emptyList(), false),
+            )
 
     val activeBoss: StateFlow<BossEntity?> =
         container.db.moduleDao().observeBosses()
@@ -87,30 +123,36 @@ class DashboardViewModel(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val weeklyCompletionPct: StateFlow<Float> =
-        profile.flatMapLatest { p ->
+        combine(profile, enabledModules, container.db.questDao().observeTemplates()) { p, modules, templates ->
+            Triple(p, modules, templates)
+        }.flatMapLatest { (p, modules, templates) ->
             flow {
                 val zone = runCatching { ZoneId.of(p?.timezone ?: ZoneId.systemDefault().id) }
                     .getOrDefault(ZoneId.systemDefault())
                 val today = container.clock.today(zone)
                 val weekStart = today.with(java.time.DayOfWeek.MONDAY).format(dateFmt)
                 val weekEnd = today.with(java.time.DayOfWeek.MONDAY).plusDays(6).format(dateFmt)
-                val completed = container.db.questDao().countCompletedInRange(weekStart, weekEnd)
-                val total = container.db.questDao().countTotalInRange(weekStart, weekEnd)
+                val tagsById = templates.associate { it.id to it.priorityTags }
+                val instances = container.db.questDao().getInstancesInRange(weekStart, weekEnd)
+                    .filter { ModuleScope.allowsQuestTemplate(tagsById[it.templateId].orEmpty(), modules) }
+                val total = instances.size
+                val completed = instances.count { it.status == QuestStatus.COMPLETED.name }
                 emit(if (total == 0) 0f else completed.toFloat() / total.toFloat())
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0f)
 
     val xpLast7Days: StateFlow<Int> =
-        profile.flatMapLatest { p ->
-            flow {
-                val zone = runCatching { ZoneId.of(p?.timezone ?: ZoneId.systemDefault().id) }
-                    .getOrDefault(ZoneId.systemDefault())
-                val today = container.clock.today(zone)
-                val startMs = today.minusDays(6).atStartOfDay(zone).toInstant().toEpochMilli()
-                val endMs = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-                emit(container.db.xpDao().sumXpBetween(startMs, endMs))
-            }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+        combine(profile, enabledModules) { p, modules -> p to modules }
+            .flatMapLatest { (p, modules) ->
+                flow {
+                    val zone = runCatching { ZoneId.of(p?.timezone ?: ZoneId.systemDefault().id) }
+                        .getOrDefault(ZoneId.systemDefault())
+                    val today = container.clock.today(zone)
+                    val startMs = today.minusDays(6).atStartOfDay(zone).toInstant().toEpochMilli()
+                    val endMs = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+                    emit(container.analytics.sumXpInRange(startMs, endMs, modules))
+                }
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     val suggestions: StateFlow<List<AdaptiveSuggestion>> =
         refreshSuggestions.onStart { emit(Unit) }
@@ -118,12 +160,6 @@ class DashboardViewModel(
                 flow { emit(container.adaptive.suggestions()) }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    val enabledModules: StateFlow<EnabledModules> =
-        ModuleFlags.observeEnabledModules(
-            container.db.playerDao().observeProfile(SystemDefaults.PLAYER_ID),
-            container.db.configDao(),
-        ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EnabledModules())
 
     val goalTitle: StateFlow<String?> =
         container.db.configDao().observe("goal_title")
@@ -223,7 +259,7 @@ class DashboardViewModel(
 
     val workoutDoneToday: StateFlow<Boolean> =
         workoutToday.map { log ->
-            log != null && log.exercises.any { it.sets.isNotEmpty() }
+            log != null && log.isTrainingDayComplete()
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     val nextAction: StateFlow<NextAction?> =

@@ -77,6 +77,23 @@ class ModuleNavigationTest {
     fun p_selectedPrimaryRoute_moreFamily() {
         assertEquals(AppRoute.More.route, selectedPrimaryRoute(AppRoute.Settings.route))
         assertEquals(AppRoute.More.route, selectedPrimaryRoute(AppRoute.Fitness.route))
+        assertEquals(AppRoute.More.route, selectedPrimaryRoute(AppRoute.Nutrition.route))
+        assertEquals(AppRoute.More.route, selectedPrimaryRoute(AppRoute.Career.route))
+        assertEquals(AppRoute.More.route, selectedPrimaryRoute(AppRoute.Modules.route))
+    }
+
+    @Test
+    fun r_selectedPrimaryRoute_questsIsNotMore() {
+        assertEquals(AppRoute.Quests.route, selectedPrimaryRoute(AppRoute.Quests.route))
+        assertFalse(selectedPrimaryRoute(AppRoute.Quests.route) == AppRoute.More.route)
+    }
+
+    @Test
+    fun n_selectedPrimaryRoute_unknownDoesNotDefaultToMore() {
+        assertEquals("", selectedPrimaryRoute(null))
+        assertEquals("unknown", selectedPrimaryRoute("unknown"))
+        assertFalse(selectedPrimaryRoute(null) == AppRoute.More.route)
+        assertFalse(selectedPrimaryRoute("unknown") == AppRoute.More.route)
     }
 
     @Test
@@ -87,10 +104,14 @@ class ModuleNavigationTest {
     }
 
     @Test
-    fun p_shouldRestorePrimaryTabState_stickyPrimaryTabs() {
-        assertTrue(shouldRestorePrimaryTabState(AppRoute.Quests.route))
+    fun p_shouldRestorePrimaryTabState_progressAndSelfRestore() {
         assertTrue(shouldRestorePrimaryTabState(AppRoute.Analytics.route))
         assertTrue(shouldRestorePrimaryTabState(AppRoute.Character.route))
+    }
+
+    @Test
+    fun r_shouldRestorePrimaryTabState_questsNeverRestores() {
+        assertFalse(shouldRestorePrimaryTabState(AppRoute.Quests.route))
     }
 
     @Test
@@ -143,5 +164,11 @@ class ModuleNavigationTest {
         assertFalse(showBottomBarForRoute(AppRoute.Onboarding.route))
         assertTrue(showBottomBarForRoute(AppRoute.Dashboard.route))
         assertTrue(showBottomBarForRoute(AppRoute.Settings.route))
+    }
+
+    @Test
+    fun n_showBottomBar_hidesConsentAndAnalysis() {
+        assertFalse(showBottomBarForRoute(AppRoute.SystemConsent.route))
+        assertFalse(showBottomBarForRoute(AppRoute.SystemAnalysis.route))
     }
 }

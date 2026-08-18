@@ -82,7 +82,7 @@ class AppContainer(context: Context) {
     val adaptive = AdaptiveService(db, clock)
     val season = SeasonService(db, clock)
     val questGeneration = QuestGenerationService(db, clock, eventBus, adaptive, scope)
-    val onboarding = OnboardingService(db, clock, questGeneration)
+    val onboarding = OnboardingService(db, clock, questGeneration, progression, season)
     val modules = ModuleService(db, eventBus, clock, progression, questVerification)
     val analytics = AnalyticsService(db, clock)
     val dayBoundary = DayBoundaryService(db, eventBus, clock)

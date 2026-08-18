@@ -26,6 +26,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -285,6 +286,7 @@ fun PlayerHeader(
     xpNeed: Int,
     modifier: Modifier = Modifier,
     greeting: String? = null,
+    activeModulesLabel: String? = null,
 ) {
     val progress = progressFraction(xpIntoLevel.toFloat(), xpNeed.toFloat())
     GlassSurface(modifier = modifier.fillMaxWidth(), level = GlassLevel.Level2, cornerRadius = 16.dp) {
@@ -309,6 +311,13 @@ fun PlayerHeader(
                 fontFamily = JetBrainsMono,
                 color = SystemPrimary,
             )
+            if (!activeModulesLabel.isNullOrBlank()) {
+                Text(
+                    "Based on: $activeModulesLabel",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             CyberProgressBar(progress = progress, height = 8.dp)
             Text(
                 xpToNextLabel(xpIntoLevel, xpNeed),
@@ -379,12 +388,13 @@ fun AttributeSummary(
     modifier: Modifier = Modifier,
     compactLimit: Int = 4,
     showAll: Boolean = false,
+    sectionTag: String = "YOUR CHARACTER",
     onViewCharacter: (() -> Unit)? = null,
 ) {
     val rows = if (showAll) displays else topAttributeDisplays(displays, compactLimit)
     GlassSurface(modifier = modifier.fillMaxWidth(), level = GlassLevel.Level1) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            SystemSectionHeader(tag = "YOUR CHARACTER")
+            SystemSectionHeader(tag = sectionTag)
             if (rows.isEmpty()) {
                 Text(
                     "Attributes will appear as you progress.",
@@ -485,6 +495,8 @@ fun MissionQuestCard(
     verificationType: String = "MANUAL",
     verificationTarget: Float = 0f,
     verificationUnit: String = "",
+    primaryLabel: String = "Complete",
+    deemphasized: Boolean = false,
     onUndo: (() -> Unit)? = null,
 ) {
     val completed = status == "COMPLETED"
@@ -496,8 +508,14 @@ fun MissionQuestCard(
         locked -> MaterialTheme.colorScheme.onSurfaceVariant
         else -> SystemPrimary
     }
+    val cardAlpha = if (deemphasized || completed) 0.72f else 1f
 
-    GlassSurface(modifier = modifier.fillMaxWidth(), level = GlassLevel.Level1) {
+    GlassSurface(
+        modifier = modifier
+            .fillMaxWidth()
+            .alpha(cardAlpha),
+        level = GlassLevel.Level1,
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -550,7 +568,7 @@ fun MissionQuestCard(
                     fontWeight = FontWeight.Medium,
                 )
                 when {
-                    !completed && !locked -> SystemActionButton(label = "Complete", onClick = onPrimary)
+                    !completed && !locked -> SystemActionButton(label = primaryLabel, onClick = onPrimary)
                     completed && onUndo != null -> SystemActionButton(label = "Undo", onClick = onUndo, primary = false)
                 }
             }
@@ -595,7 +613,11 @@ fun TodayProgressStrip(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    "$questsDone / $questsTotal QUESTS",
+                    if (questsTotal == 0) {
+                        "No active priorities"
+                    } else {
+                        "$questsDone / $questsTotal COMPLETED"
+                    },
                     style = MaterialTheme.typography.labelMedium,
                     fontFamily = JetBrainsMono,
                 )

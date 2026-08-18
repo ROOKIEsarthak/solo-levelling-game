@@ -89,6 +89,8 @@ class OnboardingStepsTest {
                 workoutSplitId = "ppl_ul",
                 splitDayMap = emptyMap(),
                 preferredWorkoutDays = emptySet(),
+                age = "25",
+                sex = "male",
                 heightCm = "170",
                 weightKg = "70",
             ),
@@ -107,6 +109,8 @@ class OnboardingStepsTest {
                 workoutSplitId = "ppl_ul",
                 splitDayMap = emptyMap(),
                 preferredWorkoutDays = emptySet(),
+                age = "25",
+                sex = "male",
                 heightCm = "170",
                 weightKg = "70",
             ),
@@ -121,6 +125,8 @@ class OnboardingStepsTest {
                 workoutSplitId = "ppl_ul",
                 splitDayMap = emptyMap(),
                 preferredWorkoutDays = emptySet(),
+                age = "25",
+                sex = "male",
                 heightCm = "170",
                 weightKg = "70",
             ),
@@ -139,6 +145,8 @@ class OnboardingStepsTest {
                 workoutSplitId = "ppl_ul",
                 splitDayMap = emptyMap(),
                 preferredWorkoutDays = emptySet(),
+                age = "25",
+                sex = "male",
                 heightCm = "170",
                 weightKg = "70",
             ),
@@ -153,8 +161,168 @@ class OnboardingStepsTest {
                 workoutSplitId = "ppl_ul",
                 splitDayMap = emptyMap(),
                 preferredWorkoutDays = setOf("MON", "WED"),
+                age = "25",
+                sex = "male",
                 heightCm = "170",
                 weightKg = "70",
+            ),
+        )
+    }
+
+    @Test
+    fun p_isBodyProfileValid_whenAllFieldsPresent() {
+        assertTrue(isBodyProfileValid(age = "28", sex = "male", heightCm = "178", weightKg = "74"))
+        assertTrue(isBodyProfileValid(age = "30", sex = "female", heightCm = "165", weightKg = "60"))
+    }
+
+    @Test
+    fun n_isBodyProfileValid_rejectsEmptyOrUnselected() {
+        assertFalse(isBodyProfileValid(age = "", sex = "male", heightCm = "178", weightKg = "74"))
+        assertFalse(isBodyProfileValid(age = "28", sex = "", heightCm = "178", weightKg = "74"))
+        assertFalse(isBodyProfileValid(age = "28", sex = "male", heightCm = "", weightKg = "74"))
+        assertFalse(isBodyProfileValid(age = "28", sex = "male", heightCm = "178", weightKg = ""))
+    }
+
+    @Test
+    fun n_isBodyProfileValid_rejectsInvalidGenderOrNonPositive() {
+        assertFalse(isBodyProfileValid(age = "28", sex = "other", heightCm = "178", weightKg = "74"))
+        assertFalse(isBodyProfileValid(age = "0", sex = "male", heightCm = "178", weightKg = "74"))
+        assertFalse(isBodyProfileValid(age = "28", sex = "male", heightCm = "-1", weightKg = "74"))
+        assertFalse(isBodyProfileValid(age = "28", sex = "female", heightCm = "178", weightKg = "abc"))
+    }
+
+    @Test
+    fun p_isOnboardingStepValid_workoutBodyRequiresProfile() {
+        assertTrue(
+            isOnboardingStepValid(
+                step = OnboardingStep.WORKOUT_BODY,
+                name = "Hunter",
+                enabledModules = EnabledModules(workout = true),
+                careerIntent = "",
+                createOwnRoutine = false,
+                workoutSplitId = "ppl_ul",
+                splitDayMap = emptyMap(),
+                preferredWorkoutDays = emptySet(),
+                age = "25",
+                sex = "female",
+                heightCm = "170",
+                weightKg = "65",
+            ),
+        )
+    }
+
+    @Test
+    fun n_isOnboardingStepValid_workoutBodyRejectsEmptyDefaults() {
+        assertFalse(
+            isOnboardingStepValid(
+                step = OnboardingStep.WORKOUT_BODY,
+                name = "Hunter",
+                enabledModules = EnabledModules(workout = true),
+                careerIntent = "",
+                createOwnRoutine = false,
+                workoutSplitId = "ppl_ul",
+                splitDayMap = emptyMap(),
+                preferredWorkoutDays = emptySet(),
+                age = "",
+                sex = "",
+                heightCm = "",
+                weightKg = "",
+            ),
+        )
+    }
+
+    @Test
+    fun n_isOnboardingStepValid_dietOnlyRequiresBodyFields() {
+        assertFalse(
+            isOnboardingStepValid(
+                step = OnboardingStep.DIET_NUTRITION,
+                name = "Hunter",
+                enabledModules = EnabledModules(diet = true),
+                careerIntent = "",
+                createOwnRoutine = false,
+                workoutSplitId = "ppl_ul",
+                splitDayMap = emptyMap(),
+                preferredWorkoutDays = emptySet(),
+                age = "",
+                sex = "",
+                heightCm = "",
+                weightKg = "",
+            ),
+        )
+        assertTrue(
+            isOnboardingStepValid(
+                step = OnboardingStep.DIET_NUTRITION,
+                name = "Hunter",
+                enabledModules = EnabledModules(diet = true),
+                careerIntent = "",
+                createOwnRoutine = false,
+                workoutSplitId = "ppl_ul",
+                splitDayMap = emptyMap(),
+                preferredWorkoutDays = emptySet(),
+                age = "25",
+                sex = "male",
+                heightCm = "178",
+                weightKg = "74",
+            ),
+        )
+    }
+
+    @Test
+    fun n_isOnboardingStepValid_dietOnly_heightWeightWithoutAgeSex_isInvalid() {
+        assertFalse(
+            isOnboardingStepValid(
+                step = OnboardingStep.DIET_NUTRITION,
+                name = "Hunter",
+                enabledModules = EnabledModules(diet = true),
+                careerIntent = "",
+                createOwnRoutine = false,
+                workoutSplitId = "ppl_ul",
+                splitDayMap = emptyMap(),
+                preferredWorkoutDays = emptySet(),
+                age = "",
+                sex = "",
+                heightCm = "172",
+                weightKg = "73",
+            ),
+        )
+    }
+
+    @Test
+    fun e_isOnboardingStepValid_dietAfterWorkout_skipsBodyRequirement() {
+        assertTrue(
+            isOnboardingStepValid(
+                step = OnboardingStep.DIET_NUTRITION,
+                name = "Hunter",
+                enabledModules = EnabledModules(workout = true, diet = true),
+                careerIntent = "",
+                createOwnRoutine = false,
+                workoutSplitId = "ppl_ul",
+                splitDayMap = emptyMap(),
+                preferredWorkoutDays = emptySet(),
+                age = "",
+                sex = "",
+                heightCm = "",
+                weightKg = "",
+            ),
+        )
+    }
+
+    @Test
+    fun e_isOnboardingStepValid_careerOnly_summaryIgnoresEmptyBody() {
+        assertTrue(
+            isOnboardingStepValid(
+                step = OnboardingStep.SUMMARY,
+                name = "Hunter",
+                enabledModules = EnabledModules(career = true),
+                careerIntent = "learning",
+                createOwnRoutine = false,
+                workoutSplitId = "ppl_ul",
+                splitDayMap = emptyMap(),
+                preferredWorkoutDays = emptySet(),
+                age = "",
+                sex = "",
+                heightCm = "",
+                weightKg = "",
             ),
         )
     }

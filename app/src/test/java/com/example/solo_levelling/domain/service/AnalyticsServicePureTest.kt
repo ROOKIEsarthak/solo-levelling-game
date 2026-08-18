@@ -1,7 +1,10 @@
 package com.example.solo_levelling.domain.service
 
+import com.example.solo_levelling.domain.model.AttributeCode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AnalyticsServicePureTest {
@@ -47,6 +50,38 @@ class AnalyticsServicePureTest {
             modules = EnabledModules(career = true, workout = false, diet = false),
         )
         assertEquals(100, score)
+    }
+
+    @Test
+    fun p_personalScore_workoutOnlyIgnoresMissingDsa() {
+        val score = AnalyticsService.personalScore(
+            questCompletionPct = 1f,
+            streak = 7,
+            workoutDays = 7,
+            dsaSolvedWeek = 0,
+            modules = EnabledModules(career = false, workout = true, diet = false),
+        )
+        assertEquals(100, score)
+    }
+
+    @Test
+    fun n_personalScore_disabledCareerDoesNotCountZeroDsa() {
+        val withDisabledCareer = AnalyticsService.personalScore(
+            questCompletionPct = 1f,
+            streak = 7,
+            workoutDays = 7,
+            dsaSolvedWeek = 0,
+            modules = EnabledModules(career = false, workout = true, diet = false),
+        )
+        val withEnabledCareerZeroDsa = AnalyticsService.personalScore(
+            questCompletionPct = 1f,
+            streak = 7,
+            workoutDays = 7,
+            dsaSolvedWeek = 0,
+            modules = EnabledModules(career = true, workout = true, diet = false),
+        )
+        assertEquals(100, withDisabledCareer)
+        assertTrue(withEnabledCareerZeroDsa < withDisabledCareer)
     }
 
     @Test
@@ -98,5 +133,52 @@ class AnalyticsServicePureTest {
         val end = start.plusDays(6)
         assertEquals(5, AnalyticsService.estimateActiveDays(5, 0, 0, start, end))
         assertEquals(3, AnalyticsService.estimateActiveDays(1, 3, 7, start, end))
+    }
+
+    @Test
+    fun p_isAttributeActionable_careerGatesInt() {
+        val careerOnly = EnabledModules(career = true, workout = false, diet = false)
+        assertTrue(AnalyticsService.isAttributeActionable(AttributeCode.INT.name, careerOnly))
+        assertFalse(AnalyticsService.isAttributeActionable(AttributeCode.STR.name, careerOnly))
+        assertTrue(AnalyticsService.isAttributeActionable(AttributeCode.DISC.name, careerOnly))
+    }
+
+    @Test
+    fun n_isAttributeActionable_workoutGatesStrength() {
+        val dietOnly = EnabledModules(career = false, workout = false, diet = true)
+        assertFalse(AnalyticsService.isAttributeActionable(AttributeCode.STR.name, dietOnly))
+        assertFalse(AnalyticsService.isAttributeActionable(AttributeCode.INT.name, dietOnly))
+        assertTrue(AnalyticsService.isAttributeActionable(AttributeCode.VIT.name, dietOnly))
+    }
+
+    @Test
+    fun e_isAttributeActionable_vitWhenWorkoutWithoutDiet() {
+        val workoutOnly = EnabledModules(career = false, workout = true, diet = false)
+        assertTrue(AnalyticsService.isAttributeActionable(AttributeCode.VIT.name, workoutOnly))
+    }
+
+    @Test
+    fun r_attributeSnapshot_ignoresDisabledModuleStrength() {
+        val attrs = listOf(
+            AttributeCode.STR.name to 1,
+            AttributeCode.DISC.name to 50,
+            AttributeCode.FOC.name to 40,
+        )
+        val snap = AnalyticsService.attributeSnapshot(
+            attrs,
+            EnabledModules(career = false, workout = false, diet = true),
+        )
+        assertEquals(AttributeCode.FOC.name, snap.bottomCode)
+        assertEquals(AttributeCode.DISC.name, snap.topCode)
+    }
+
+    @Test
+    fun p_attributeSnapshot_emptyWhenNoRelevantAttrs() {
+        val snap = AnalyticsService.attributeSnapshot(
+            emptyList(),
+            EnabledModules(career = true, workout = true, diet = true),
+        )
+        assertNull(snap.bottomCode)
+        assertNull(snap.topCode)
     }
 }

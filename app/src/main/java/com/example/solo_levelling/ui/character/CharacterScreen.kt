@@ -56,6 +56,8 @@ import com.example.solo_levelling.ui.components.attributeGrowthInsight
 import com.example.solo_levelling.ui.components.attributeInsight
 import com.example.solo_levelling.ui.components.progressFraction
 import com.example.solo_levelling.ui.components.xpProgressLabel
+import com.example.solo_levelling.domain.service.AnalyticsService
+import com.example.solo_levelling.domain.service.ModuleScope
 import com.example.solo_levelling.ui.theme.JetBrainsMono
 import com.example.solo_levelling.ui.theme.Spacing
 import com.example.solo_levelling.ui.theme.SystemPrimary
@@ -89,14 +91,15 @@ fun CharacterScreen(container: AppContainer) {
     val xpInto = if (p == null) 0 else p.totalXp - SystemDefaults.totalXpForLevel(p.level)
     val need = if (p == null) 1 else SystemDefaults.xpForNextLevel(p.level)
     val xpProgress = progressFraction(xpInto.toFloat(), need.toFloat())
+    val actionable = attrs.filter { AnalyticsService.isAttributeActionable(it.code, modules) }
     val displays = attributeDisplays(
-        codes = attrs.map { it.code },
-        values = attrs.map { it.currentValue },
-        lifetimeXp = attrs.map { it.lifetimeXp },
+        codes = actionable.map { it.code },
+        values = actionable.map { it.currentValue },
+        lifetimeXp = actionable.map { it.lifetimeXp },
     )
     val insight = attributeInsight(
-        codes = attrs.map { it.code },
-        values = attrs.map { it.currentValue },
+        codes = actionable.map { it.code },
+        values = actionable.map { it.currentValue },
     )
     val visibleLedger = visibleLedgerEntries(ledger, ledgerExpanded, LEDGER_COLLAPSED_LIMIT)
     val dateFmt = DateTimeFormatter.ofPattern("MMM d, HH:mm")
@@ -129,6 +132,7 @@ fun CharacterScreen(container: AppContainer) {
                     xpInto = xpInto,
                     xpNeed = need,
                     xpProgress = xpProgress,
+                    activeModulesLabel = ModuleScope.activeModulesSummary(modules),
                 )
             }
 
@@ -274,6 +278,7 @@ private fun CharacterIdentityHero(
     xpInto: Int,
     xpNeed: Int,
     xpProgress: Float,
+    activeModulesLabel: String = "",
 ) {
     GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level2, cornerRadius = 16.dp) {
         Row(
@@ -302,6 +307,13 @@ private fun CharacterIdentityHero(
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                     BracketLabel(text = "LVL $level", color = SystemPrimary)
                     RankBadge(rank = rank)
+                }
+                if (activeModulesLabel.isNotBlank()) {
+                    Text(
+                        "Based on: $activeModulesLabel",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 CyberProgressBar(progress = xpProgress, height = 8.dp)
                 Text(

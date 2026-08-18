@@ -44,7 +44,7 @@ class OnboardingServiceExpandedTest {
             AdaptiveService(db, clock),
             CoroutineScope(testDispatcher),
         )
-        onboarding = OnboardingService(db, clock, questGen)
+        onboarding = OnboardingService(db, clock, questGen, ProgressionService(db, EventBus(), clock))
     }
 
     @After

@@ -34,7 +34,13 @@ class ProgressionServiceTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         db = JsonDatabase(File(context.cacheDir, "test-db-${System.nanoTime()}").also { it.mkdirs() })
         eventBus = EventBus()
-        clock = FakeAppClock(fixedDate = LocalDate.of(2026, 8, 15))
+        clock = FakeAppClock(
+            epochMs = java.time.LocalDate.of(2026, 8, 15)
+                .atStartOfDay(java.time.ZoneOffset.UTC)
+                .toInstant()
+                .toEpochMilli() + 12L * 60 * 60 * 1000,
+            fixedDate = LocalDate.of(2026, 8, 15),
+        )
         service = ProgressionService(db, eventBus, clock)
     }
 

@@ -9,6 +9,8 @@ import com.example.solo_levelling.data.db.entity.QuestInstanceEntity
 import com.example.solo_levelling.data.db.entity.StreakStateEntity
 import com.example.solo_levelling.domain.logic.StreakLogic
 import com.example.solo_levelling.domain.model.QuestStatus
+import com.example.solo_levelling.domain.service.ModuleFlags
+import com.example.solo_levelling.domain.service.ModuleScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
@@ -42,6 +44,21 @@ class StreakHandler(
         val zone = runCatching { ZoneId.of(profile.timezone) }.getOrDefault(ZoneId.systemDefault())
         val today = clock.today(zone)
         val todayStr = today.format(dateFmt)
+
+        val modules = ModuleFlags.resolve(
+            onboardingDone = profile.onboardingDone,
+            career = db.configDao().get(ModuleFlags.KEY_CAREER)?.value,
+            workout = db.configDao().get(ModuleFlags.KEY_WORKOUT)?.value,
+            diet = db.configDao().get(ModuleFlags.KEY_DIET)?.value,
+        )
+        val completedTodayAllowed = db.questDao().getInstancesForDate(todayStr)
+            .filter { it.status == QuestStatus.COMPLETED.name }
+            .any { instance ->
+                val tags = db.questDao().getTemplateById(instance.templateId)?.priorityTags.orEmpty()
+                ModuleScope.allowsQuestTemplate(tags, modules)
+            }
+        if (!completedTodayAllowed) return
+
         val streak = db.playerDao().getStreak(SystemDefaults.PLAYER_ID) ?: StreakStateEntity()
 
         val weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).format(dateFmt)
@@ -75,8 +92,18 @@ class StreakHandler(
         val zone = runCatching { ZoneId.of(profile.timezone) }.getOrDefault(ZoneId.systemDefault())
         val today = clock.today(zone)
         val todayStr = today.format(dateFmt)
+        val modules = ModuleFlags.resolve(
+            onboardingDone = profile.onboardingDone,
+            career = db.configDao().get(ModuleFlags.KEY_CAREER)?.value,
+            workout = db.configDao().get(ModuleFlags.KEY_WORKOUT)?.value,
+            diet = db.configDao().get(ModuleFlags.KEY_DIET)?.value,
+        )
         val completedToday = db.questDao().getInstancesForDate(todayStr)
-            .any { it.status == QuestStatus.COMPLETED.name }
+            .filter { it.status == QuestStatus.COMPLETED.name }
+            .any { instance ->
+                val tags = db.questDao().getTemplateById(instance.templateId)?.priorityTags.orEmpty()
+                ModuleScope.allowsQuestTemplate(tags, modules)
+            }
         if (completedToday) return
 
         val streak = db.playerDao().getStreak(SystemDefaults.PLAYER_ID) ?: return

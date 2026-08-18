@@ -40,6 +40,47 @@ class SeasonService(
         )
     }
 
+    suspend fun rebuildFromLedger(modules: EnabledModules) {
+        val season = db.moduleDao().getActiveSeason() ?: return
+        val zone = playerZone()
+        val startMs = LocalDate.parse(season.startDate, dateFmt).atStartOfDay(zone).toInstant().toEpochMilli()
+        val endExclusive = LocalDate.parse(season.endDate, dateFmt)
+            .plusDays(1)
+            .atStartOfDay(zone)
+            .toInstant()
+            .toEpochMilli()
+        val xp = db.xpDao().getAllLedger()
+            .filter { it.createdAtEpochMs in startMs until endExclusive }
+            .sumOf { entry -> if (allowsXpEntry(entry, modules)) entry.amount else 0 }
+        db.moduleDao().upsertSeason(season.copy(seasonXp = xp.coerceAtLeast(0)))
+    }
+
+    private suspend fun allowsXpEntry(
+        entry: com.example.solo_levelling.data.db.entity.XpLedgerEntryEntity,
+        modules: EnabledModules,
+    ): Boolean {
+        val questModule = if (entry.sourceType.equals("QUEST_INSTANCE", ignoreCase = true) &&
+            ModuleScope.parseModuleFromMetadata(entry.metadataJson) == null
+        ) {
+            resolveQuestInstanceModule(entry.sourceId)
+        } else {
+            null
+        }
+        return ModuleScope.allowsLedgerEntry(
+            entry.sourceType,
+            entry.metadataJson,
+            modules,
+            questModule,
+        )
+    }
+
+    private suspend fun resolveQuestInstanceModule(sourceId: String): ModuleId {
+        val instanceId = sourceId.substringBefore('_').toLongOrNull() ?: return ModuleId.GLOBAL
+        val instance = db.questDao().getInstance(instanceId) ?: return ModuleId.GLOBAL
+        val tags = db.questDao().getTemplateById(instance.templateId)?.priorityTags.orEmpty()
+        return ModuleScope.moduleForPriorityTags(tags)
+    }
+
     suspend fun endSeasonIfPast() {
         val season = db.moduleDao().getActiveSeason() ?: return
         val today = clock.today(playerZone())

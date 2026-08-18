@@ -28,8 +28,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.domain.copy.SystemMessages
-import com.example.solo_levelling.domain.service.QuestCompletionService
 import com.example.solo_levelling.ui.dashboard.questCompletionUserMessage
+import com.example.solo_levelling.ui.navigation.QuestDestinationResolver
 import com.example.solo_levelling.ui.components.BracketLabel
 import com.example.solo_levelling.ui.components.CyberProgressBar
 import com.example.solo_levelling.ui.components.EnergyFieldBackground
@@ -55,6 +55,10 @@ import kotlinx.coroutines.withContext
 fun QuestsScreen(
     container: AppContainer,
     onMessage: (String) -> Unit = {},
+    onOpenWorkout: () -> Unit = {},
+    onOpenNutrition: () -> Unit = {},
+    onOpenCareer: () -> Unit = {},
+    onOpenModules: () -> Unit = {},
 ) {
     val vm: QuestsViewModel = viewModel(factory = QuestsViewModel.factory(container))
     val quests by vm.quests.collectAsStateWithLifecycle()
@@ -62,6 +66,32 @@ fun QuestsScreen(
     val todayXp by vm.todayAvailableXp.collectAsStateWithLifecycle()
     val bossProgress by vm.bossProgress.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+
+    fun completeQuest(id: Long) {
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                container.questCompletion.complete(id)
+            }
+            onMessage(questCompletionUserMessage(result))
+        }
+    }
+
+    fun onQuestPrimary(item: QuestListItem) {
+        val q = item.instance
+        val action = QuestDestinationResolver.resolve(
+            priorityTags = item.priorityTags,
+            verificationType = q.verificationType,
+            status = q.status,
+        )
+        QuestDestinationResolver.dispatch(
+            action = action,
+            onFitness = onOpenWorkout,
+            onNutrition = onOpenNutrition,
+            onCareer = onOpenCareer,
+            onModules = onOpenModules,
+            onCompleteInPlace = { completeQuest(q.id) },
+        )
+    }
 
     Box(Modifier.fillMaxSize()) {
         EnergyFieldBackground(Modifier.fillMaxSize())
@@ -109,7 +139,13 @@ fun QuestsScreen(
                 )
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(Spacing.xs + 2.dp)) {
-                    items(quests, key = { it.id }) { q ->
+                    items(quests, key = { it.instance.id }) { item ->
+                        val q = item.instance
+                        val action = QuestDestinationResolver.resolve(
+                            priorityTags = item.priorityTags,
+                            verificationType = q.verificationType,
+                            status = q.status,
+                        )
                         MissionQuestCard(
                             type = q.type,
                             title = humanizeSuggestionTitle(q.title),
@@ -119,14 +155,8 @@ fun QuestsScreen(
                             verificationType = q.verificationType,
                             verificationTarget = q.verificationTarget,
                             verificationUnit = q.verificationUnit,
-                            onPrimary = {
-                                scope.launch {
-                                    val result = withContext(Dispatchers.IO) {
-                                        container.questCompletion.complete(q.id)
-                                    }
-                                    onMessage(questCompletionUserMessage(result))
-                                }
-                            },
+                            primaryLabel = action.label,
+                            onPrimary = { onQuestPrimary(item) },
                             onUndo = {
                                 scope.launch {
                                     val ok = withContext(Dispatchers.IO) {

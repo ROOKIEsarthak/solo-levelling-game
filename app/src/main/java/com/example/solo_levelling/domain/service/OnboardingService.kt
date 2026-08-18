@@ -61,6 +61,8 @@ class OnboardingService(
     private val db: JsonDatabase,
     private val clock: AppClock,
     private val questGeneration: QuestGenerationService,
+    private val progression: ProgressionService,
+    private val season: SeasonService? = null,
 ) {
     suspend fun ensureSeeded() {
         if (db.achievementDao().getDefs().isEmpty()) {
@@ -124,6 +126,10 @@ class OnboardingService(
         for ((key, value) in ModuleFlags.encode(modules)) {
             db.configDao().upsert(UserConfigEntity(key, value))
         }
+        progression.rebuildActiveFromLedger(modules)
+        season?.rebuildFromLedger(modules)
+        val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
+        questGeneration.generateForToday(profile?.timezone ?: ZoneId.systemDefault().id)
     }
 
     private suspend fun seedCareerCatalogsIfEmpty() {
@@ -281,6 +287,10 @@ class OnboardingService(
                         )
                     }
                     db.moduleDao().upsertWorkoutRoutine(result.routine)
+                    db.configDao().upsert(
+                        UserConfigEntity(WorkoutSplitChangeLogic.KEY_APPLIED_AT, clock.nowEpochMs().toString()),
+                    )
+                    db.configDao().upsert(UserConfigEntity(WorkoutSplitChangeLogic.KEY_SCALE, "1.0"))
                 }
             }
         }

@@ -67,10 +67,14 @@ import com.example.solo_levelling.core.event.DomainEvent
 import com.example.solo_levelling.domain.copy.SystemMessages
 import com.example.solo_levelling.domain.service.EnabledModules
 import com.example.solo_levelling.domain.service.ModuleFlags
+import com.example.solo_levelling.domain.service.OnboardingInput
 import com.example.solo_levelling.ui.achievements.AchievementsScreen
+import com.example.solo_levelling.ui.analysis.SystemAnalysisScreen
+import com.example.solo_levelling.ui.analysis.analysisRedirectRoute
 import com.example.solo_levelling.ui.analytics.AnalyticsScreen
 import com.example.solo_levelling.ui.career.CareerScreen
 import com.example.solo_levelling.ui.character.CharacterScreen
+import com.example.solo_levelling.ui.consent.SystemConsentScreen
 import com.example.solo_levelling.ui.dashboard.DashboardScreen
 import com.example.solo_levelling.ui.fitness.FitnessScreen
 import com.example.solo_levelling.ui.fitness.FitnessTab
@@ -103,6 +107,14 @@ private const val WelcomeMinMs = 3_200L
 fun canEnterApp(ready: Boolean, elapsedMs: Long, minMs: Long = WelcomeMinMs): Boolean =
     ready && elapsedMs >= minMs
 
+/** NavHost start destination after splash. Existing users skip consent and onboarding. */
+fun startRoute(onboardingDone: Boolean): String =
+    if (onboardingDone) AppRoute.Dashboard.route else AppRoute.SystemConsent.route
+
+/** Keep the first NavHost start destination. Completing onboarding later must not rebuild the graph. */
+fun lockStartRoute(locked: String?, onboardingDone: Boolean): String =
+    locked ?: startRoute(onboardingDone)
+
 @Composable
 fun SoloLevellingAppRoot(container: AppContainer) {
     val bootstrap: BootstrapViewModel = viewModel(factory = BootstrapViewModel.factory(container))
@@ -121,7 +133,8 @@ fun SoloLevellingAppRoot(container: AppContainer) {
     }
 
     val navController = rememberNavController()
-    val start = if (onboardingDone) AppRoute.Dashboard.route else AppRoute.Onboarding.route
+    val start = remember { lockStartRoute(null, onboardingDone) }
+    var pendingOnboardingInput by remember { mutableStateOf<OnboardingInput?>(null) }
     val backStack by navController.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
     val scope = rememberCoroutineScope()
@@ -334,11 +347,48 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                     startDestination = start,
                     modifier = Modifier.fillMaxSize(),
                 ) {
+                    composable(AppRoute.SystemConsent.route) {
+                        SystemConsentScreen(
+                            onContinue = {
+                                navController.navigate(AppRoute.Onboarding.route) {
+                                    launchSingleTop = true
+                                }
+                            },
+                        )
+                    }
                     composable(AppRoute.Onboarding.route) {
-                        OnboardingScreen(container) {
-                            navController.navigate(AppRoute.Dashboard.route) {
-                                popUpTo(AppRoute.Onboarding.route) { inclusive = true }
+                        OnboardingScreen { input ->
+                            pendingOnboardingInput = input
+                            navController.navigate(AppRoute.SystemAnalysis.route) {
+                                launchSingleTop = true
                             }
+                        }
+                    }
+                    composable(AppRoute.SystemAnalysis.route) {
+                        val input = pendingOnboardingInput
+                        if (input == null) {
+                            LaunchedEffect(onboardingDone) {
+                                val target = analysisRedirectRoute(
+                                    hasInput = false,
+                                    onboardingDone = onboardingDone,
+                                ) ?: return@LaunchedEffect
+                                navController.navigate(target) {
+                                    popUpTo(0) { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            }
+                        } else {
+                            SystemAnalysisScreen(
+                                container = container,
+                                input = input,
+                                onReady = {
+                                    navController.navigate(AppRoute.Dashboard.route) {
+                                        popUpTo(0) { inclusive = true }
+                                        launchSingleTop = true
+                                    }
+                                    pendingOnboardingInput = null
+                                },
+                            )
                         }
                     }
                     composable(AppRoute.Dashboard.route) {
@@ -350,12 +400,20 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                             onOpenNutrition = { navController.navigate(AppRoute.Nutrition.route) },
                             onOpenMissions = { navController.navigate(AppRoute.Quests.route) },
                             onOpenCareer = { navController.navigate(AppRoute.Career.route) },
+                            onOpenModules = { navController.navigate(AppRoute.Modules.route) },
                             onOpenCharacter = { navController.navigate(AppRoute.Character.route) },
                             onMessage = showMessage,
                         )
                     }
                     composable(AppRoute.Quests.route) {
-                        QuestsScreen(container = container, onMessage = showMessage)
+                        QuestsScreen(
+                            container = container,
+                            onMessage = showMessage,
+                            onOpenWorkout = { navController.navigate(AppRoute.Fitness.route) },
+                            onOpenNutrition = { navController.navigate(AppRoute.Nutrition.route) },
+                            onOpenCareer = { navController.navigate(AppRoute.Career.route) },
+                            onOpenModules = { navController.navigate(AppRoute.Modules.route) },
+                        )
                     }
                     composable(AppRoute.Career.route) {
                         CareerScreen(container = container, onMessage = showMessage)
@@ -365,6 +423,8 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                             container = container,
                             onOpenWorkout = { navController.navigate(AppRoute.Fitness.route) },
                             onOpenDiet = { navController.navigate(AppRoute.Nutrition.route) },
+                            showWorkout = modules.workout,
+                            showDiet = modules.diet,
                         )
                     }
                     composable(AppRoute.Character.route) { CharacterScreen(container) }
@@ -411,7 +471,8 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                             container = container,
                             onMessage = showMessage,
                             onResetComplete = {
-                                navController.navigate(AppRoute.Onboarding.route) {
+                                pendingOnboardingInput = null
+                                navController.navigate(AppRoute.SystemConsent.route) {
                                     popUpTo(0) { inclusive = true }
                                 }
                             },
@@ -434,8 +495,9 @@ fun SoloLevellingAppRoot(container: AppContainer) {
 
 private data class TabItem(val route: AppRoute, val label: String, val icon: ImageVector)
 
-/** Primary tab switch: Home/More never restore a prior child stack. */
+/** Primary tab switch: Home/Quests/More never restore a prior child stack. */
 private fun navigatePrimaryTab(navController: NavController, route: String) {
+    if (navController.currentDestination?.route == route) return
     navController.navigate(route) {
         popUpTo(navController.graph.findStartDestination().id) {
             saveState = true

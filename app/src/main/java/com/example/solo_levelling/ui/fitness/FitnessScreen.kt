@@ -31,6 +31,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,17 +57,22 @@ import com.example.solo_levelling.data.db.entity.PlannedExerciseEntity
 import com.example.solo_levelling.data.db.entity.RepRangeEntity
 import com.example.solo_levelling.data.db.entity.WorkoutDayPlanEntity
 import com.example.solo_levelling.data.db.entity.WorkoutLogEntity
+import com.example.solo_levelling.data.db.entity.WorkoutRestKind
 import com.example.solo_levelling.data.db.entity.WorkoutRoutineEntity
 import com.example.solo_levelling.data.seed.FoodCatalog
 import com.example.solo_levelling.data.seed.FoodCatalogEntry
 import com.example.solo_levelling.data.seed.WorkoutCatalog
 import com.example.solo_levelling.domain.service.EntryValidation
 import com.example.solo_levelling.domain.service.FoodMacroScaler
+import com.example.solo_levelling.domain.service.ModuleService
 import com.example.solo_levelling.domain.service.WorkoutProgressLogic
 import com.example.solo_levelling.domain.service.WorkoutSplitLogic
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import com.example.solo_levelling.ui.components.BracketLabel
 import com.example.solo_levelling.ui.components.CyberProgressBar
 import com.example.solo_levelling.ui.components.EnergyFieldBackground
+import com.example.solo_levelling.ui.components.GhostTextButton
 import com.example.solo_levelling.ui.components.GlassLevel
 import com.example.solo_levelling.ui.components.GlassSurface
 import com.example.solo_levelling.ui.components.SovereignChip
@@ -79,11 +85,19 @@ import com.example.solo_levelling.ui.theme.Spacing
 import com.example.solo_levelling.ui.theme.SystemPrimary
 import com.example.solo_levelling.ui.theme.SystemSecondary
 import java.time.LocalDate
+import java.time.format.TextStyle
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 private val WEEK_DAYS = listOf(
     "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
 )
+
+internal fun defaultTrainingTab(workoutSplitId: String?): String =
+    if (workoutSplitId != null && workoutSplitId.isBlank()) "Routine" else "Today"
+
+internal fun resolvedTrainingTab(userTab: String?, workoutSplitId: String?): String =
+    userTab ?: defaultTrainingTab(workoutSplitId)
 
 enum class FitnessTab { Workout, Diet, Both }
 
@@ -114,7 +128,12 @@ fun FitnessScreen(
     val calorieTarget by vm.calorieTarget.collectAsStateWithLifecycle()
     val workoutSplitId by vm.workoutSplitId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    val splitLocked = workoutSplitId.isNotBlank()
+    val splitLocked = workoutSplitId?.isNotBlank() == true
+
+    DisposableEffect(Unit) {
+        vm.resetWorkoutDateToToday()
+        onDispose { }
+    }
 
     val workoutDate = (selectedWorkoutDate ?: todayDate).ifBlank { todayDate }
     val dietDate = (selectedDietDate ?: todayDate).ifBlank { todayDate }
@@ -151,11 +170,29 @@ fun FitnessScreen(
                 fitnessGoal = fitnessGoal,
                 splitLocked = splitLocked,
                 workoutSplitId = workoutSplitId,
-                onApplySplit = { splitId, dayMapCsv ->
+                todayDate = todayDate,
+                onApplySplit = { splitId, dayMapCsv, confirmEarly ->
                     scope.launch {
-                        val err = container.modules.applyWorkoutSplit(splitId, dayMapCsv)
-                        if (err != null) onMessage(err) else onMessage("Split applied")
+                        val err = container.modules.applyWorkoutSplit(
+                            splitId,
+                            dayMapCsv,
+                            confirmEarlyChange = confirmEarly,
+                        )
+                        when (err) {
+                            ModuleService.EARLY_SPLIT_CHANGE_REQUIRED -> onMessage(ModuleService.EARLY_SPLIT_CHANGE_REQUIRED)
+                            null -> {
+                                vm.resetWorkoutDateToToday()
+                                onMessage("Split applied")
+                            }
+                            else -> onMessage(err)
+                        }
                     }
+                },
+                weeksOnSplit = {
+                    container.modules.weeksOnCurrentSplit()
+                },
+                isEarlySplitChange = {
+                    container.modules.isEarlySplitChange()
                 },
                 onPrevDate = {
                     if (workoutDate.isNotBlank()) {
@@ -187,7 +224,6 @@ fun FitnessScreen(
                 onStartLog = {
                     scope.launch {
                         container.modules.startOrGetWorkoutLog(workoutDate)
-                        onMessage("Workout started — log at least one set")
                     }
                 },
                 onSaveLog = { log ->
@@ -201,6 +237,15 @@ fun FitnessScreen(
                         onMessage("Workout saved · $sets sets")
                     }
                 },
+                onCompleteRestDay = { activeRest ->
+                    scope.launch {
+                        container.modules.completeRestDay(workoutDate, activeRest)
+                        onMessage(
+                            if (activeRest) "Active rest logged. Recovery counts."
+                            else "Rest day complete.",
+                        )
+                    }
+                },
                 onDeleteLog = { scope.launch { container.modules.deleteWorkoutLog(workoutDate) } },
                 onRemoveExercise = { id ->
                     scope.launch { container.modules.removeExerciseFromLog(workoutDate, id) }
@@ -212,7 +257,7 @@ fun FitnessScreen(
                 onRepeatLast = {
                     scope.launch {
                         if (splitLocked) {
-                            onMessage("Use START WORKOUT for your split plan")
+                            onMessage("Open today's workout to log your split")
                             return@launch
                         }
                         val last = workouts.firstOrNull { it.date != workoutDate }
@@ -352,6 +397,7 @@ private fun MacroGlassCard(label: String, current: Int, target: Int, unit: Strin
 @Composable
 private fun DateStrip(
     label: String,
+    isToday: Boolean = false,
     onPrev: () -> Unit,
     onNext: () -> Unit,
 ) {
@@ -368,13 +414,24 @@ private fun DateStrip(
                     tint = SystemPrimary,
                 )
             }
-            Text(
-                label,
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.bodyMedium,
-                fontFamily = JetBrainsMono,
-                color = SystemPrimary,
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (isToday) {
+                    Text(
+                        "TODAY",
+                        fontFamily = JetBrainsMono,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = SystemPrimary,
+                    )
+                }
+                Text(
+                    label,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontFamily = JetBrainsMono,
+                    color = SystemPrimary,
+                )
+            }
             IconButton(onClick = onNext) {
                 Icon(
                     Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -392,6 +449,7 @@ private fun FitnessSection(
     todaySummary: WorkoutLogEntity?,
     nutritionToday: String?,
     workoutDate: String,
+    todayDate: String,
     selectedLog: WorkoutLogEntity?,
     history: List<WorkoutLogEntity>,
     heightCm: String,
@@ -399,8 +457,10 @@ private fun FitnessSection(
     bmiEstimate: String,
     fitnessGoal: String,
     splitLocked: Boolean = false,
-    workoutSplitId: String = "",
-    onApplySplit: (String, String) -> Unit = { _, _ -> },
+    workoutSplitId: String? = null,
+    onApplySplit: (String, String, Boolean) -> Unit = { _, _, _ -> },
+    weeksOnSplit: suspend () -> Long = { 0L },
+    isEarlySplitChange: suspend () -> Boolean = { false },
     onPrevDate: () -> Unit,
     onNextDate: () -> Unit,
     onSaveDay: (String, WorkoutDayPlanEntity) -> Unit,
@@ -410,6 +470,7 @@ private fun FitnessSection(
     onReorderPlanned: (String, Long, Boolean) -> Unit,
     onStartLog: () -> Unit,
     onSaveLog: (WorkoutLogEntity) -> Unit,
+    onCompleteRestDay: (Boolean) -> Unit = {},
     onDeleteLog: () -> Unit,
     onRemoveExercise: (Long) -> Unit,
     onUpsertExercise: (LoggedExerciseEntity) -> Unit,
@@ -422,7 +483,8 @@ private fun FitnessSection(
         selectedContainerColor = colors.primary.copy(alpha = 0.15f),
         selectedLabelColor = colors.primary,
     )
-    var tab by remember { mutableStateOf("Routine") }
+    var userTab by remember { mutableStateOf<String?>(null) }
+    val tab = resolvedTrainingTab(userTab, workoutSplitId)
     var dayKey by remember { mutableStateOf("monday") }
     var dayName by remember { mutableStateOf("") }
     var planName by remember { mutableStateOf("") }
@@ -439,58 +501,224 @@ private fun FitnessSection(
     var compareName by remember { mutableStateOf("") }
     var compareHistory by remember { mutableStateOf<List<Pair<String, LoggedExerciseEntity>>>(emptyList()) }
     var exercisePrevious by remember { mutableStateOf<Map<Long, LoggedExerciseEntity?>>(emptyMap()) }
-    var changeSplitId by remember { mutableStateOf(workoutSplitId.ifBlank { "ppl_ul" }) }
+    var changeSplitId by remember { mutableStateOf(workoutSplitId.orEmpty().ifBlank { "ppl_ul" }) }
     var splitDayMap by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) }
+    var showEarlyChangeDialog by remember { mutableStateOf(false) }
+    var pendingSplitApply by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var weeksHeld by remember { mutableStateOf(0L) }
+    var showActiveRestDialog by remember { mutableStateOf(false) }
+    var showCompleteRestDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    val selectedDayKey = remember(workoutDate) {
+        runCatching {
+            LocalDate.parse(workoutDate).dayOfWeek.getDisplayName(TextStyle.FULL, Locale.ENGLISH).lowercase()
+        }.getOrDefault("monday")
+    }
+    val selectedDayPlan = routine.day(selectedDayKey)
+    val isRestDay = !selectedDayPlan.enabled
+    val isWorkoutDateToday = workoutDate == todayDate
+    val weekdayLabel = remember(workoutDate) {
+        runCatching {
+            LocalDate.parse(workoutDate).dayOfWeek.getDisplayName(TextStyle.FULL, Locale.ENGLISH)
+        }.getOrDefault(workoutDate)
+    }
 
     val dayPlan = routine.day(dayKey)
     LaunchedEffect(dayKey, dayPlan) {
         dayName = if (dayPlan.enabled) dayPlan.name else ""
     }
     LaunchedEffect(workoutSplitId) {
-        if (workoutSplitId.isNotBlank()) changeSplitId = workoutSplitId
+        if (!workoutSplitId.isNullOrBlank()) changeSplitId = workoutSplitId
     }
     LaunchedEffect(changeSplitId) {
         WorkoutCatalog.findSplit(changeSplitId)?.let { split ->
             splitDayMap = WorkoutSplitLogic.defaultDayMap(split)
         }
     }
+    LaunchedEffect(splitLocked, workoutDate) {
+        if (splitLocked && workoutDate.isNotBlank()) {
+            onStartLog()
+        }
+    }
+    LaunchedEffect(splitLocked) {
+        if (splitLocked) {
+            weeksHeld = weeksOnSplit()
+        }
+    }
+
+    fun tryApplySplit(confirmEarly: Boolean) {
+        val mapError = WorkoutSplitLogic.buildRoutine(changeSplitId, splitDayMap).error
+        if (mapError != null) {
+            onMessage(mapError)
+            return
+        }
+        val csv = WorkoutSplitLogic.encodeDayMap(splitDayMap)
+        if (!confirmEarly) {
+            scope.launch {
+                if (isEarlySplitChange()) {
+                    pendingSplitApply = changeSplitId to csv
+                    weeksHeld = weeksOnSplit()
+                    showEarlyChangeDialog = true
+                } else {
+                    onApplySplit(changeSplitId, csv, false)
+                    userTab = "Today"
+                }
+            }
+            return
+        }
+        onApplySplit(changeSplitId, csv, true)
+        userTab = "Today"
+    }
+
+    if (showEarlyChangeDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showEarlyChangeDialog = false
+                pendingSplitApply = null
+            },
+            title = { Text("Your current split") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        if (weeksHeld > 0) {
+                            "You've been following this split for $weeksHeld weeks."
+                        } else {
+                            "You've recently set this split."
+                        },
+                    )
+                    Text(
+                        "Consistency matters more than constantly changing the plan. " +
+                            "For meaningful progress, consider following your current split " +
+                            "for at least 6 months before changing it.",
+                    )
+                    Text(
+                        "Changing early may reduce workout progression rewards. " +
+                            "Your existing progress remains yours. Career and diet are unaffected.",
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val pending = pendingSplitApply
+                        showEarlyChangeDialog = false
+                        pendingSplitApply = null
+                        if (pending != null) {
+                            onApplySplit(pending.first, pending.second, true)
+                            userTab = "Today"
+                        }
+                    },
+                ) { Text("Change Split") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showEarlyChangeDialog = false
+                        pendingSplitApply = null
+                    },
+                ) { Text("Keep Current Split") }
+            },
+        )
+    }
+
+    if (showActiveRestDialog) {
+        AlertDialog(
+            onDismissRequest = { showActiveRestDialog = false },
+            title = { Text("Rest day") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Did you have an active rest day?")
+                    Text(
+                        "Active rest can include walking, light movement, mobility, or stretching.",
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showActiveRestDialog = false
+                        onCompleteRestDay(true)
+                    },
+                ) { Text("Yes, Active Rest") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showActiveRestDialog = false
+                        showCompleteRestDialog = true
+                    },
+                ) { Text("No") }
+            },
+        )
+    }
+
+    if (showCompleteRestDialog) {
+        AlertDialog(
+            onDismissRequest = { showCompleteRestDialog = false },
+            title = { Text("Rest day") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Complete rest is okay.")
+                    Text(
+                        "Active recovery can help you stay consistent without turning every day into a hard training day.",
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showCompleteRestDialog = false
+                        onCompleteRestDay(false)
+                    },
+                ) { Text("Finish Rest Day") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCompleteRestDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
 
     GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level2, borderAlpha = 0.35f) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (todaySummary == null) {
-                        Text(
-                            "YOUR SYSTEM IS READY.\nNo workout has been logged yet.\nYour first session starts here.",
-                            color = colors.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    } else {
-                        Text(
-                            todaySummary.workoutName,
-                            fontWeight = FontWeight.Bold,
-                            color = SystemPrimary,
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            "${todaySummary.exercises.size} exercises · " +
-                                "${todaySummary.exercises.sumOf { it.sets.size }} sets",
-                            fontFamily = JetBrainsMono,
-                            color = colors.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall,
+            if (!splitLocked) {
+                GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level2, borderAlpha = 0.35f) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (todaySummary == null) {
+                            Text(
+                                "YOUR SYSTEM IS READY.\nNo workout has been logged yet.\nYour first session starts here.",
+                                color = colors.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        } else {
+                            Text(
+                                todaySummary.workoutName,
+                                fontWeight = FontWeight.Bold,
+                                color = SystemPrimary,
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                "${todaySummary.exercises.size} exercises · " +
+                                    "${todaySummary.exercises.sumOf { it.sets.size }} sets",
+                                fontFamily = JetBrainsMono,
+                                color = colors.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        nutritionToday?.let {
+                            Text("Diet tip: $it", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                        }
+                        SystemActionButton(
+                            label = "START SAME WORKOUT",
+                            onClick = onRepeatLast,
+                            modifier = Modifier.fillMaxWidth(),
+                            primary = false,
                         )
                     }
-                    nutritionToday?.let {
-                        Text("Diet tip: $it", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                    }
-                    SystemActionButton(
-                        label = if (splitLocked) "Split locked — use Start workout" else "START SAME WORKOUT",
-                        onClick = onRepeatLast,
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !splitLocked,
-                        primary = false,
-                    )
                 }
             }
 
@@ -534,32 +762,31 @@ private fun FitnessSection(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                listOf("Routine", "Log", "History").forEach { label ->
+                val tabs = when {
+                    workoutSplitId == null -> listOf("Today", "History")
+                    splitLocked && tab == "Change Split" -> listOf("Today", "Change Split", "History")
+                    splitLocked -> listOf("Today", "History")
+                    else -> listOf("Routine", "Today", "History")
+                }
+                tabs.forEach { label ->
                     SovereignChip(
                         label = label,
-                        selected = tab == label,
-                        onClick = { tab = label },
+                        selected = tab == label || (label == "Today" && tab == "Log"),
+                        onClick = { userTab = label },
                     )
                 }
             }
 
             when (tab) {
-                "Routine" -> {
+                "Change Split", "Routine" -> {
                     Text(
                         if (splitLocked) {
-                            "Split: ${WorkoutCatalog.findSplit(workoutSplitId)?.name ?: workoutSplitId}"
+                            "Choose a new split. This regenerates your week plan."
                         } else {
                             "Choose a catalog split to lock the exercise list"
                         },
                         fontWeight = FontWeight.Bold,
                     )
-                    if (splitLocked) {
-                        Text(
-                            "Exercises are fixed — change split below to regenerate the week plan.",
-                            color = colors.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
                     Row(
                         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -601,61 +828,24 @@ private fun FitnessSection(
                     }
                     SystemActionButton(
                         label = if (splitLocked) "APPLY SPLIT" else "APPLY SPLIT & LOCK",
-                        onClick = {
-                            val mapError = WorkoutSplitLogic.buildRoutine(changeSplitId, splitDayMap).error
-                            if (mapError != null) {
-                                onMessage(mapError)
-                            } else {
-                                onApplySplit(changeSplitId, WorkoutSplitLogic.encodeDayMap(splitDayMap))
-                            }
-                        },
+                        onClick = { tryApplySplit(confirmEarly = false) },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        WEEK_DAYS.forEach { d ->
-                            FilterChip(
-                                selected = dayKey == d,
-                                onClick = { dayKey = d },
-                                label = { Text(d.take(3).replaceFirstChar { it.uppercase() }) },
-                                colors = chipColors,
-                                border = BorderStroke(1.dp, if (dayKey == d) colors.primary else colors.outline),
-                            )
-                        }
-                    }
-                    if (splitLocked) {
-                        GlassSurface(
-                            modifier = Modifier.fillMaxWidth(),
-                            level = GlassLevel.Level2,
-                            borderAlpha = 0.35f,
+                    if (tab == "Routine" && !splitLocked) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                                Text(
-                                    if (dayPlan.enabled) dayPlan.name.ifBlank { "Workout" } else "Rest",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold,
+                            WEEK_DAYS.forEach { d ->
+                                FilterChip(
+                                    selected = dayKey == d,
+                                    onClick = { dayKey = d },
+                                    label = { Text(d.take(3).replaceFirstChar { it.uppercase() }) },
+                                    colors = chipColors,
+                                    border = BorderStroke(1.dp, if (dayKey == d) colors.primary else colors.outline),
                                 )
-                                HorizontalDivider(color = colors.primary.copy(alpha = 0.25f))
-                                if (!dayPlan.enabled) {
-                                    Text(
-                                        "Rest day",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = colors.onSurfaceVariant,
-                                    )
-                                }
-                                dayPlan.exercises.forEach { ex ->
-                                    Text(
-                                        "${ex.name} · ${ex.targetMuscle} · ${ex.sets}×${ex.repRange.min}-${ex.repRange.max}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = colors.onSurfaceVariant,
-                                        modifier = Modifier.padding(start = Spacing.xs),
-                                    )
-                                }
                             }
                         }
-                    } else {
                         OutlinedTextField(
                             dayName,
                             { dayName = it },
@@ -741,16 +931,24 @@ private fun FitnessSection(
                     }
                 }
 
-                "Log" -> {
-                    DateStrip(label = workoutDate, onPrev = onPrevDate, onNext = onNextDate)
-                    SystemActionButton(
-                        label = "START WORKOUT",
-                        onClick = onStartLog,
-                        modifier = Modifier.fillMaxWidth(),
+                "Today", "Log" -> {
+                    DateStrip(
+                        label = weekdayLabel,
+                        isToday = isWorkoutDateToday,
+                        onPrev = onPrevDate,
+                        onNext = onNextDate,
                     )
+                    if (!splitLocked) {
+                        SystemActionButton(
+                            label = "START WORKOUT",
+                            onClick = onStartLog,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                     val log = selectedLog
+                    val dayComplete = log?.isTrainingDayComplete() == true
                     LaunchedEffect(log, tab, workoutDate) {
-                        if (tab == "Log" && log != null) {
+                        if ((tab == "Log" || tab == "Today") && log != null && !isRestDay) {
                             val map = mutableMapOf<Long, LoggedExerciseEntity?>()
                             log.exercises.forEach { ex ->
                                 val hist = loadExerciseHistory(ex.name)
@@ -759,10 +957,48 @@ private fun FitnessSection(
                             exercisePrevious = map
                         }
                     }
-                    if (log != null) {
+                    if (isRestDay) {
+                        Text(
+                            "REST DAY",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = SystemPrimary,
+                        )
+                        Text(
+                            "Recovery is part of progress.",
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        if (dayComplete) {
+                            val kindLabel = when (log?.restKind) {
+                                WorkoutRestKind.ACTIVE_REST -> "Active rest logged."
+                                WorkoutRestKind.COMPLETE_REST -> "Rest day complete."
+                                else -> "Day complete."
+                            }
+                            Text(
+                                kindLabel,
+                                fontFamily = JetBrainsMono,
+                                color = colors.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        } else {
+                            SystemActionButton(
+                                label = "FINISH WORKOUT",
+                                onClick = { showActiveRestDialog = true },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        if (splitLocked) {
+                            GhostTextButton(
+                                label = "Change Split",
+                                onClick = { userTab = "Change Split" },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    } else if (log != null) {
                         if (splitLocked) {
                             Text(
-                                log.workoutName,
+                                log.workoutName.ifBlank { selectedDayPlan.name }.ifBlank { "Workout" },
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                             )
@@ -774,11 +1010,17 @@ private fun FitnessSection(
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
+                        if (dayComplete) {
+                            Text(
+                                "Session complete.",
+                                fontFamily = JetBrainsMono,
+                                color = colors.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                         log.exercises.forEach { ex ->
                             val planned = routine.day(log.dayOfWeek.ifBlank {
-                                runCatching {
-                                    LocalDate.parse(workoutDate).dayOfWeek.name.lowercase()
-                                }.getOrDefault(dayKey)
+                                selectedDayKey
                             }).exercises.firstOrNull { it.name.equals(ex.name, ignoreCase = true) }
                             Text(ex.name.uppercase(), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                             if (planned != null) {
@@ -833,30 +1075,32 @@ private fun FitnessSection(
                                         (s.rpe?.let { " @ RPE $it" } ?: ""),
                                 )
                             }
-                            OutlinedButton(
-                                onClick = {
-                                    editingExerciseId = ex.id
-                                    scope.launch {
-                                        val hist = loadExerciseHistory(ex.name)
-                                        compareHistory = hist
-                                        val prev = hist.firstOrNull { it.first != workoutDate }?.second
-                                        val last = ex.sets.lastOrNull() ?: prev?.sets?.lastOrNull()
-                                        if (last != null) {
-                                            setWeight = last.weight.toString()
-                                            setReps = last.reps.toString()
+                            if (!dayComplete) {
+                                OutlinedButton(
+                                    onClick = {
+                                        editingExerciseId = ex.id
+                                        scope.launch {
+                                            val hist = loadExerciseHistory(ex.name)
+                                            compareHistory = hist
+                                            val prev = hist.firstOrNull { it.first != workoutDate }?.second
+                                            val last = ex.sets.lastOrNull() ?: prev?.sets?.lastOrNull()
+                                            if (last != null) {
+                                                setWeight = last.weight.toString()
+                                                setReps = last.reps.toString()
+                                            }
                                         }
-                                    }
-                                },
-                                modifier = Modifier.height(48.dp),
-                                border = BorderStroke(1.dp, SystemPrimary.copy(alpha = 0.5f)),
-                            ) {
-                                Text("+ ADD SET", fontFamily = JetBrainsMono, color = SystemPrimary)
+                                    },
+                                    modifier = Modifier.height(48.dp),
+                                    border = BorderStroke(1.dp, SystemPrimary.copy(alpha = 0.5f)),
+                                ) {
+                                    Text("+ ADD SET", fontFamily = JetBrainsMono, color = SystemPrimary)
+                                }
                             }
                             if (!splitLocked) {
                                 SystemActionButton(label = "DELETE EXERCISE", onClick = { onRemoveExercise(ex.id) }, primary = false)
                             }
                         }
-                        if (editingExerciseId != null) {
+                        if (!dayComplete && editingExerciseId != null) {
                             val target = log.exercises.firstOrNull { it.id == editingExerciseId }
                             if (target != null) {
                                 val editPrevBest = exercisePrevious[target.id]?.sets?.maxOfOrNull { it.weight } ?: 0f
@@ -915,27 +1159,45 @@ private fun FitnessSection(
                                 },
                             )
                         }
-                        SystemActionButton(
-                            label = "FINISH WORKOUT",
-                            onClick = {
-                                val sets = log.exercises.sumOf { it.sets.size }
-                                if (sets == 0) {
-                                    onMessage("Log at least one set before finishing")
-                                    return@SystemActionButton
-                                }
-                                onSaveLog(log.copy(workoutName = logName.ifBlank { log.workoutName }))
-                                logName = ""
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        SystemActionButton(label = "DELETE", onClick = onDeleteLog, primary = false, modifier = Modifier.fillMaxWidth())
+                        if (!dayComplete) {
+                            SystemActionButton(
+                                label = "FINISH WORKOUT",
+                                onClick = {
+                                    val sets = log.exercises.sumOf { it.sets.size }
+                                    if (sets == 0) {
+                                        onMessage("Log at least one set before finishing")
+                                        return@SystemActionButton
+                                    }
+                                    onSaveLog(log.copy(workoutName = logName.ifBlank { log.workoutName }))
+                                    logName = ""
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        if (!splitLocked) {
+                            SystemActionButton(label = "DELETE", onClick = onDeleteLog, primary = false, modifier = Modifier.fillMaxWidth())
+                        }
+                        if (splitLocked) {
+                            GhostTextButton(
+                                label = "Change Split",
+                                onClick = { userTab = "Change Split" },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     } else {
                         SystemIdleEmpty(
                             title = "System ready",
                             subtitle = "No workout has been logged yet.\nYour first session starts here.",
-                            actionLabel = "START WORKOUT",
+                            actionLabel = if (splitLocked) "OPEN TODAY" else "START WORKOUT",
                             onAction = onStartLog,
                         )
+                        if (splitLocked) {
+                            GhostTextButton(
+                                label = "Change Split",
+                                onClick = { userTab = "Change Split" },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
 

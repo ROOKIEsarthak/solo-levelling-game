@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.core.config.SystemDefaults
 import com.example.solo_levelling.data.db.entity.PlayerProfileEntity
@@ -34,7 +35,10 @@ import com.example.solo_levelling.data.db.entity.StreakStateEntity
 import com.example.solo_levelling.domain.copy.SystemMessages
 import com.example.solo_levelling.domain.copy.SystemMessages.MotivationContext
 import com.example.solo_levelling.domain.service.BeforeVsNow
+import com.example.solo_levelling.domain.service.EnabledModules
 import com.example.solo_levelling.domain.service.ImprovementSnapshot
+import com.example.solo_levelling.domain.service.ModuleFlags
+import com.example.solo_levelling.domain.service.ModuleScope
 import com.example.solo_levelling.domain.service.WeeklyReview
 import com.example.solo_levelling.ui.components.EnergyFieldBackground
 import com.example.solo_levelling.ui.components.GlassLevel
@@ -68,7 +72,12 @@ fun AnalyticsScreen(
     val context = LocalContext.current
     val colors = MaterialTheme.colorScheme
 
-    LaunchedEffect(Unit) {
+    val enabledModules by ModuleFlags.observeEnabledModules(
+        container.db.playerDao().observeProfile(SystemDefaults.PLAYER_ID),
+        container.db.configDao(),
+    ).collectAsStateWithLifecycle(initialValue = EnabledModules())
+
+    LaunchedEffect(enabledModules) {
         loading = true
         review = container.analytics.weeklyReview()
         improvement = container.analytics.improvementSnapshot()
@@ -93,6 +102,12 @@ fun AnalyticsScreen(
                 Text(
                     "A quiet look at how your week is unfolding.",
                     style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurfaceVariant,
+                )
+                Text(
+                    "Active · ${ModuleScope.activeModulesSummary(enabledModules)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = JetBrainsMono,
                     color = colors.onSurfaceVariant,
                 )
                 activeSeason?.let { s ->
@@ -128,7 +143,9 @@ fun AnalyticsScreen(
                                 value = formatCompletionRate(r.completionRate),
                             )
                             MetricLine(label = "XP earned", value = "${r.xpEarned}")
-                            MetricLine(label = "Workouts", value = "${r.workoutCountWeek} sessions")
+                            r.workoutCountWeek?.let { count ->
+                                MetricLine(label = "Workouts", value = "$count sessions")
+                            }
                             MetricLine(label = "Streak", value = "${streak?.current ?: 0} days")
                             MetricLine(
                                 label = "Personal score",
@@ -214,16 +231,20 @@ fun AnalyticsScreen(
                                 before = formatCompletionRate(b.taskCompletionBefore),
                                 now = formatCompletionRate(b.taskCompletionNow),
                             )
-                            CompareRow(
-                                label = "Workout days / week",
-                                before = "${b.workoutDaysBefore}",
-                                now = "${b.workoutDaysNow}",
-                            )
-                            CompareRow(
-                                label = "DSA solved / week",
-                                before = "${b.dsaSolvedBefore}",
-                                now = "${b.dsaSolvedNow}",
-                            )
+                            if (b.workoutDaysBefore != null && b.workoutDaysNow != null) {
+                                CompareRow(
+                                    label = "Workout days / week",
+                                    before = "${b.workoutDaysBefore}",
+                                    now = "${b.workoutDaysNow}",
+                                )
+                            }
+                            if (b.dsaSolvedBefore != null && b.dsaSolvedNow != null) {
+                                CompareRow(
+                                    label = "DSA solved / week",
+                                    before = "${b.dsaSolvedBefore}",
+                                    now = "${b.dsaSolvedNow}",
+                                )
+                            }
                             b.dietAdherenceBefore?.let { before ->
                                 b.dietAdherenceNow?.let { now ->
                                     CompareRow(label = "Diet adherence", before = "$before%", now = "$now%")

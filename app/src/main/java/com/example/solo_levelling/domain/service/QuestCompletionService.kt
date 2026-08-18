@@ -31,6 +31,7 @@ class QuestCompletionService(
         data object NotFound : Result()
         data object InvalidStatus : Result()
         data object DailyCapReached : Result()
+        data object ModuleDisabled : Result()
     }
 
     suspend fun complete(instanceId: Long): Result {
@@ -45,18 +46,20 @@ class QuestCompletionService(
                 return@withLock Pending(Result.InvalidStatus, emptyList())
             }
 
+            val template = questDao.getTemplateById(instance.templateId)
+            val modules = progression.currentModules()
+            val priorityTags = template?.priorityTags.orEmpty()
+            if (!ModuleScope.allowsQuestTemplate(priorityTags, modules)) {
+                return@withLock Pending(Result.ModuleDisabled, emptyList())
+            }
+
             val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
                 ?: return@withLock Pending(Result.NotFound, emptyList())
 
-            val dayStart = startOfDayMs(profile.timezone)
-            val dayEnd = dayStart + 24L * 60 * 60 * 1000
-            val earnedToday = db.xpDao().sumXpBetween(dayStart, dayEnd)
-            if (earnedToday >= SystemDefaults.DAILY_XP_CAP) {
-                return@withLock Pending(Result.DailyCapReached, emptyList())
-            }
-            val xpAvailable = minOf(instance.baseXp, SystemDefaults.DAILY_XP_CAP - earnedToday)
-            if (xpAvailable <= 0) {
-                return@withLock Pending(Result.DailyCapReached, emptyList())
+            val moduleId = ModuleScope.moduleForPriorityTags(priorityTags)
+            var xpAmount = instance.baseXp
+            if (moduleId == ModuleId.WORKOUT) {
+                xpAmount = (xpAmount * workoutProgressionScale()).toInt().coerceAtLeast(0)
             }
 
             val now = clock.nowEpochMs()
@@ -68,6 +71,8 @@ class QuestCompletionService(
             val sourceId = "${instanceId}_${now}_$priorAwards"
             val events = mutableListOf<DomainEvent>()
             var awardResult: ProgressionService.AwardResult? = null
+            val metadata =
+                """{"title":"${instance.title.replace("\"", "'")}","module":"${moduleId.name}"}"""
 
             db.withTransaction {
                 val deltas = AttributeRewardsParser.parse(instance.attributeRewardsJson)
@@ -75,11 +80,12 @@ class QuestCompletionService(
                 awardResult = progression.awardWithinTransaction(
                     sourceType = sourceType,
                     sourceId = sourceId,
-                    amount = instance.baseXp,
+                    amount = xpAmount,
                     attrs = attrs,
-                    metadataJson = """{"title":"${instance.title.replace("\"", "'")}"}""",
+                    metadataJson = metadata,
                     applyDailyCap = true,
                     events = events,
+                    modules = modules,
                 )
                 if (awardResult is ProgressionService.AwardResult.Success) {
                     questDao.updateInstance(
@@ -113,6 +119,7 @@ class QuestCompletionService(
                 }
                 ProgressionService.AwardResult.AlreadyAwarded -> Pending(Result.AlreadyCompleted, emptyList())
                 ProgressionService.AwardResult.CapReached -> Pending(Result.DailyCapReached, emptyList())
+                ProgressionService.AwardResult.ModuleDisabled -> Pending(Result.ModuleDisabled, emptyList())
                 ProgressionService.AwardResult.NoProfile -> Pending(Result.NotFound, emptyList())
                 null -> Pending(Result.NotFound, emptyList())
             }
@@ -162,6 +169,11 @@ class QuestCompletionService(
         return pending.ok
     }
 
+    private suspend fun workoutProgressionScale(): Float {
+        val raw = db.configDao().get(WorkoutSplitChangeLogic.KEY_SCALE)?.value?.toFloatOrNull()
+        return raw?.coerceIn(0.1f, 1f) ?: 1f
+    }
+
     private suspend fun findUnrevertedQuestAward(instanceId: Long): XpLedgerEntryEntity? {
         val ledger = db.xpDao().getAllLedger()
         val idStr = instanceId.toString()
@@ -184,11 +196,6 @@ class QuestCompletionService(
             ?.groupValues
             ?.get(1)
             ?.toLongOrNull()
-
-    private fun startOfDayMs(timezone: String): Long {
-        val zone = runCatching { java.time.ZoneId.of(timezone) }.getOrDefault(java.time.ZoneId.systemDefault())
-        return clock.today(zone).atStartOfDay(zone).toInstant().toEpochMilli()
-    }
 
     private data class Pending(val result: Result, val events: List<DomainEvent>)
     private data class PendingUndo(val ok: Boolean, val events: List<DomainEvent>)

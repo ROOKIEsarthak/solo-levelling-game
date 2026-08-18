@@ -35,9 +35,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.solo_levelling.AppContainer
+import com.example.solo_levelling.core.config.SystemDefaults
 import com.example.solo_levelling.data.db.entity.CareerNodeEntity
 import com.example.solo_levelling.data.db.entity.DsaProblemEntity
+import com.example.solo_levelling.domain.service.EnabledModules
 import com.example.solo_levelling.domain.service.EntryValidation
+import com.example.solo_levelling.domain.service.ModuleFlags
 import com.example.solo_levelling.ui.components.BracketLabel
 import com.example.solo_levelling.ui.components.CyberProgressBar
 import com.example.solo_levelling.ui.components.EnergyFieldBackground
@@ -70,6 +73,10 @@ fun ModulesScreen(
     val focusToday by vm.focusToday.collectAsStateWithLifecycle()
     val routinesToday by vm.routinesToday.collectAsStateWithLifecycle()
     val recentMetrics by vm.recentMetrics.collectAsStateWithLifecycle()
+    val modules by ModuleFlags.observeEnabledModules(
+        container.db.playerDao().observeProfile(SystemDefaults.PLAYER_ID),
+        container.db.configDao(),
+    ).collectAsStateWithLifecycle(initialValue = EnabledModules())
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
 
@@ -118,7 +125,11 @@ fun ModulesScreen(
         ) {
             SystemSectionHeader(tag = "LIFE MODULES", accent = SystemPrimary)
             Text(
-                "Focus, journal, metrics, and extras. DSA & System Design live under Career.",
+                if (modules.career) {
+                    "Focus, journal, metrics, and extras. DSA & System Design live under Career."
+                } else {
+                    "Focus, journal, metrics, and extras."
+                },
                 color = colors.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = JetBrainsMono,
@@ -329,10 +340,12 @@ fun ModulesScreen(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                GlassSurface(modifier = Modifier.weight(1f), level = GlassLevel.Level1) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SystemSectionHeader(tag = "SKILLS", accent = SystemPrimary)
-                        SkillsSection(skills = skills)
+                if (modules.career) {
+                    GlassSurface(modifier = Modifier.weight(1f), level = GlassLevel.Level1) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SystemSectionHeader(tag = "SKILLS", accent = SystemPrimary)
+                            SkillsSection(skills = skills)
+                        }
                     }
                 }
 
@@ -428,41 +441,43 @@ fun ModulesScreen(
                 }
             }
 
-            CareerSection(careerNodes) { id ->
-                scope.launch {
-                    container.modules.advanceCareerNode(id)
-                    onMessage("Node advanced · +50 XP")
-                }
-            }
-
-            DsaSection(
-                dsa = dsa,
-                title = dsaTitle,
-                difficulty = dsaDifficulty,
-                topic = dsaTopic,
-                onTitleChange = { dsaTitle = it },
-                onDifficultyChange = { dsaDifficulty = it },
-                onTopicChange = { dsaTopic = it },
-                onAdd = {
+            if (modules.career) {
+                CareerSection(careerNodes) { id ->
                     scope.launch {
-                        EntryValidation.firstError(
-                            EntryValidation.requireNonBlank(dsaTitle, "title"),
-                            EntryValidation.requireNonBlank(dsaTopic, "topic"),
-                        )?.let {
-                            onMessage(it)
-                            return@launch
-                        }
-                        val difficulty = dsaDifficulty.ifBlank { "MEDIUM" }
-                        container.modules.addDsaProblem(dsaTitle.trim(), difficulty, dsaTopic.trim())
-                        dsaTitle = ""
-                        dsaTopic = ""
-                        onMessage("Problem added")
+                        container.modules.advanceCareerNode(id)
+                        onMessage("Node advanced · +50 XP")
                     }
-                },
-                onAttempt = { scope.launch { container.modules.markAttempted(it); onMessage("Attempted") } },
-                onSolve = { scope.launch { container.modules.solveDsa(it); onMessage("Solved") } },
-                onMaster = { scope.launch { container.modules.masterDsa(it); onMessage("Mastered") } },
-            )
+                }
+
+                DsaSection(
+                    dsa = dsa,
+                    title = dsaTitle,
+                    difficulty = dsaDifficulty,
+                    topic = dsaTopic,
+                    onTitleChange = { dsaTitle = it },
+                    onDifficultyChange = { dsaDifficulty = it },
+                    onTopicChange = { dsaTopic = it },
+                    onAdd = {
+                        scope.launch {
+                            EntryValidation.firstError(
+                                EntryValidation.requireNonBlank(dsaTitle, "title"),
+                                EntryValidation.requireNonBlank(dsaTopic, "topic"),
+                            )?.let {
+                                onMessage(it)
+                                return@launch
+                            }
+                            val difficulty = dsaDifficulty.ifBlank { "MEDIUM" }
+                            container.modules.addDsaProblem(dsaTitle.trim(), difficulty, dsaTopic.trim())
+                            dsaTitle = ""
+                            dsaTopic = ""
+                            onMessage("Problem added")
+                        }
+                    },
+                    onAttempt = { scope.launch { container.modules.markAttempted(it); onMessage("Attempted") } },
+                    onSolve = { scope.launch { container.modules.solveDsa(it); onMessage("Solved") } },
+                    onMaster = { scope.launch { container.modules.masterDsa(it); onMessage("Mastered") } },
+                )
+            }
 
             Spacer(Modifier.height(8.dp))
         }

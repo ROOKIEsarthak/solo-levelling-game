@@ -7,6 +7,7 @@ import com.example.solo_levelling.data.db.entity.BossEntity
 import com.example.solo_levelling.data.db.entity.BossQuestEntity
 import com.example.solo_levelling.domain.logic.BossProgressLogic
 import com.example.solo_levelling.domain.model.AttributeCode
+import com.example.solo_levelling.domain.service.ModuleScope
 import com.example.solo_levelling.domain.service.ProgressionService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -32,6 +33,8 @@ class BossProgressHandler(
     private suspend fun onQuestCompleted(event: DomainEvent.QuestCompleted) {
         val boss = db.moduleDao().getActiveBoss() ?: return
         val template = db.questDao().getTemplateById(event.templateId) ?: return
+        val modules = progression.currentModules()
+        if (!ModuleScope.allowsQuestTemplate(template.priorityTags, modules)) return
         val bossQuests = db.moduleDao().getBossQuests(boss.id)
         val matching = bossQuests.firstOrNull { it.templateKey == template.key && !it.completed }
             ?: return
@@ -67,6 +70,8 @@ class BossProgressHandler(
     private suspend fun onQuestUndone(event: DomainEvent.QuestUndone) {
         val instance = db.questDao().getInstance(event.instanceId) ?: return
         val template = db.questDao().getTemplateById(instance.templateId) ?: return
+        val modules = progression.currentModules()
+        if (!ModuleScope.allowsQuestTemplate(template.priorityTags, modules)) return
 
         var matchedBoss: BossEntity? = null
         var matching: BossQuestEntity? = null

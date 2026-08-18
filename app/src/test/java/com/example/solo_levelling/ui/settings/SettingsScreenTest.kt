@@ -1,5 +1,6 @@
 package com.example.solo_levelling.ui.settings
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -48,5 +49,36 @@ class SettingsScreenTest {
         val text = systemWipeDescription()
         assertTrue(text.contains("Clears XP"))
         assertTrue(text.contains("quests"))
+    }
+
+    @Test
+    fun p_settingsSplitIsLocked_whenIdSaved() {
+        assertTrue(settingsSplitIsLocked("ppl_ul"))
+    }
+
+    @Test
+    fun n_settingsSplitIsLocked_blankIsUnlocked() {
+        assertFalse(settingsSplitIsLocked(null))
+        assertFalse(settingsSplitIsLocked(""))
+        assertFalse(settingsSplitIsLocked("   "))
+    }
+
+    @Test
+    fun p_settingsCurrentSplitLines_usesWeekdayLabels() {
+        val lines = settingsCurrentSplitLines("ppl_ul", mapOf(1 to 2, 2 to 3, 3 to 4, 4 to 6, 5 to 7))
+        assertTrue(lines.any { it.contains("Tue") })
+        assertTrue(lines.any { it.contains("Wed") })
+        assertEquals(5, lines.size)
+    }
+
+    @Test
+    fun e_settingsCurrentSplitLines_unknownSplitFallsBackToId() {
+        assertEquals(listOf("missing_split"), settingsCurrentSplitLines("missing_split", emptyMap()))
+    }
+
+    @Test
+    fun n_settingsCurrentSplitLines_missingDayShowsDash() {
+        val lines = settingsCurrentSplitLines("ppl_ul", emptyMap())
+        assertTrue(lines.all { it.endsWith("—") })
     }
 }

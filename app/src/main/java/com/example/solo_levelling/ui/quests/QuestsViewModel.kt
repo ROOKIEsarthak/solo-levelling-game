@@ -9,6 +9,9 @@ import com.example.solo_levelling.data.db.entity.BossEntity
 import com.example.solo_levelling.data.db.entity.BossQuestEntity
 import com.example.solo_levelling.data.db.entity.QuestInstanceEntity
 import com.example.solo_levelling.domain.model.QuestStatus
+import com.example.solo_levelling.domain.service.EnabledModules
+import com.example.solo_levelling.domain.service.ModuleFlags
+import com.example.solo_levelling.domain.service.ModuleScope
 import java.time.DayOfWeek
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -20,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
@@ -30,6 +34,11 @@ enum class QuestTab {
 data class BossProgressUi(
     val boss: BossEntity,
     val quests: List<BossQuestEntity>,
+)
+
+data class QuestListItem(
+    val instance: QuestInstanceEntity,
+    val priorityTags: String,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -57,45 +66,64 @@ class QuestsViewModel(
             )
         }
 
-    val todayAvailableXp: StateFlow<Int> = dateContext
-        .flatMapLatest { ctx ->
-            container.db.questDao().observeInstancesForDate(ctx.today)
-                .map { list ->
-                    list.filter { it.status == QuestStatus.AVAILABLE.name }.sumOf { it.baseXp }
+    private val enabledModules = ModuleFlags.observeEnabledModules(
+        container.db.playerDao().observeProfile(SystemDefaults.PLAYER_ID),
+        container.db.configDao(),
+    )
+
+    val todayAvailableXp: StateFlow<Int> =
+        combine(dateContext, enabledModules) { ctx, modules -> ctx to modules }
+            .flatMapLatest { (ctx, modules) ->
+                combine(
+                    container.db.questDao().observeInstancesForDate(ctx.today),
+                    container.db.questDao().observeTemplates(),
+                ) { list, templates ->
+                    val tagsById = templates.associate { it.id to it.priorityTags }
+                    val items = list.map { QuestListItem(it, tagsById[it.templateId].orEmpty()) }
+                    availableXpForModules(items, modules)
                 }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
-
-    val quests: StateFlow<List<QuestInstanceEntity>> = combine(dateContext, _selectedTab) { ctx, tab -> ctx to tab }
-        .flatMapLatest { (ctx, tab) ->
-            when (tab) {
-                QuestTab.TODAY -> container.db.questDao().observeInstancesForDate(ctx.today)
-                    .map { list -> list.filter { it.type == "DAILY" } }
-                QuestTab.WEEKLY -> container.db.questDao().observeInstancesByType("WEEKLY")
-                    .map { list -> list.filter { it.scheduledDate in ctx.weekStart..ctx.weekEnd } }
-                QuestTab.MILESTONES -> container.db.questDao().observeInstancesByType("MILESTONE")
-                QuestTab.RECOVERY -> container.db.questDao().observeInstancesByType("RECOVERY")
-                    .map { list -> list.filter { it.scheduledDate == ctx.today } }
-                QuestTab.BOSSES -> container.db.questDao().observeInstancesForDate(ctx.today)
-                    .map { emptyList() }
             }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
-    val bossProgress: StateFlow<BossProgressUi?> = container.db.moduleDao().observeBosses()
-        .map { bosses ->
-            val active = bosses.firstOrNull { it.status == "ACTIVE" } ?: return@map null
-            BossProgressUi(active, emptyList())
-        }
-        .flatMapLatest { ui ->
-            if (ui == null) {
-                kotlinx.coroutines.flow.flowOf(null)
-            } else {
-                container.db.moduleDao().observeBossQuests(ui.boss.id)
-                    .map { quests -> ui.copy(quests = quests) }
+    val quests: StateFlow<List<QuestListItem>> =
+        combine(dateContext, _selectedTab, enabledModules) { ctx, tab, modules -> Triple(ctx, tab, modules) }
+            .flatMapLatest { (ctx, tab, modules) ->
+                val instances = when (tab) {
+                    QuestTab.TODAY -> container.db.questDao().observeInstancesForDate(ctx.today)
+                        .map { list -> list.filter { it.type == "DAILY" } }
+                    QuestTab.WEEKLY -> container.db.questDao().observeInstancesByType("WEEKLY")
+                        .map { list -> list.filter { it.scheduledDate in ctx.weekStart..ctx.weekEnd } }
+                    QuestTab.MILESTONES -> container.db.questDao().observeInstancesByType("MILESTONE")
+                    QuestTab.RECOVERY -> container.db.questDao().observeInstancesByType("RECOVERY")
+                        .map { list -> list.filter { it.scheduledDate == ctx.today } }
+                    QuestTab.BOSSES -> container.db.questDao().observeInstancesForDate(ctx.today)
+                        .map { emptyList() }
+                }
+                combine(instances, container.db.questDao().observeTemplates()) { list, templates ->
+                    val tagsById = templates.associate { it.id to it.priorityTags }
+                    questItemsForModules(
+                        list.map { QuestListItem(it, tagsById[it.templateId].orEmpty()) },
+                        modules,
+                    )
+                }
             }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val bossProgress: StateFlow<BossProgressUi?> =
+        combine(
+            container.db.moduleDao().observeBosses(),
+            container.db.questDao().observeTemplates(),
+            enabledModules,
+        ) { bosses, templates, modules -> Triple(bosses, templates, modules) }
+            .flatMapLatest { (bosses, templates, modules) ->
+                val active = bosses.firstOrNull { it.status == "ACTIVE" }
+                    ?: return@flatMapLatest flowOf(null)
+                val tagsByKey = templates.associate { it.key to it.priorityTags }
+                container.db.moduleDao().observeBossQuests(active.id).map { quests ->
+                    BossProgressUi(active, bossQuestsForModules(quests, tagsByKey, modules))
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private data class DateContext(
         val today: String,
@@ -110,4 +138,25 @@ class QuestsViewModel(
                 QuestsViewModel(container) as T
         }
     }
+}
+
+internal fun questItemsForModules(
+    items: List<QuestListItem>,
+    modules: EnabledModules,
+): List<QuestListItem> =
+    items.filter { ModuleScope.allowsQuestTemplate(it.priorityTags, modules) }
+
+internal fun availableXpForModules(
+    items: List<QuestListItem>,
+    modules: EnabledModules,
+): Int = questItemsForModules(items, modules)
+    .filter { it.instance.status == QuestStatus.AVAILABLE.name }
+    .sumOf { it.instance.baseXp }
+
+internal fun bossQuestsForModules(
+    quests: List<BossQuestEntity>,
+    tagsByTemplateKey: Map<String, String>,
+    modules: EnabledModules,
+): List<BossQuestEntity> = quests.filter { quest ->
+    ModuleScope.allowsQuestTemplate(tagsByTemplateKey[quest.templateKey].orEmpty(), modules)
 }

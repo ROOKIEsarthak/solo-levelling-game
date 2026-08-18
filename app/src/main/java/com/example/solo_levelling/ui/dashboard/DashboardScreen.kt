@@ -22,29 +22,30 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.core.config.SystemDefaults
 import com.example.solo_levelling.domain.copy.SystemMessages
 import com.example.solo_levelling.domain.model.QuestStatus
+import com.example.solo_levelling.domain.service.AnalyticsService
+import com.example.solo_levelling.domain.service.ModuleScope
 import com.example.solo_levelling.domain.service.QuestCompletionService
 import com.example.solo_levelling.ui.components.AttributeSummary
 import com.example.solo_levelling.ui.components.EnergyFieldBackground
 import com.example.solo_levelling.ui.components.GhostTextButton
 import com.example.solo_levelling.ui.components.GlassLevel
 import com.example.solo_levelling.ui.components.GlassSurface
+import com.example.solo_levelling.ui.components.MissionQuestCard
 import com.example.solo_levelling.ui.components.PlayerHeader
-import com.example.solo_levelling.ui.components.SystemActionButton
 import com.example.solo_levelling.ui.components.SystemIdleEmpty
 import com.example.solo_levelling.ui.components.SystemSectionHeader
 import com.example.solo_levelling.ui.components.TodayProgressStrip
 import com.example.solo_levelling.ui.components.attributeDisplays
 import com.example.solo_levelling.ui.components.attributeInsight
 import com.example.solo_levelling.ui.components.greetingForHour
-import com.example.solo_levelling.ui.components.humanizeNextActionDetail
 import com.example.solo_levelling.ui.components.humanizeSuggestionTitle
+import com.example.solo_levelling.ui.navigation.QuestDestinationResolver
 import com.example.solo_levelling.ui.theme.JetBrainsMono
 import com.example.solo_levelling.ui.theme.Spacing
 import com.example.solo_levelling.ui.theme.SystemPrimary
@@ -65,12 +66,13 @@ fun DashboardScreen(
     onOpenNutrition: () -> Unit = {},
     onOpenMissions: () -> Unit = {},
     onOpenCareer: () -> Unit = {},
+    onOpenModules: () -> Unit = {},
     onOpenCharacter: () -> Unit = {},
     onMessage: (String) -> Unit = {},
 ) {
     val vm: DashboardViewModel = viewModel(factory = DashboardViewModel.factory(container))
     val profile by vm.profile.collectAsStateWithLifecycle()
-    val quests by vm.todayQuests.collectAsStateWithLifecycle()
+    val homeSections by vm.homeQuestSections.collectAsStateWithLifecycle()
     val streak by vm.streak.collectAsStateWithLifecycle()
     val attributes by vm.attributes.collectAsStateWithLifecycle()
     val xpLast7Days by vm.xpLast7Days.collectAsStateWithLifecycle()
@@ -78,7 +80,6 @@ fun DashboardScreen(
     val nutritionToday by vm.nutritionToday.collectAsStateWithLifecycle()
     val calorieTarget by vm.calorieTarget.collectAsStateWithLifecycle()
     val proteinTarget by vm.proteinTarget.collectAsStateWithLifecycle()
-    val nextAction by vm.nextAction.collectAsStateWithLifecycle()
     val suggestions by vm.suggestions.collectAsStateWithLifecycle()
     val modules by vm.enabledModules.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -86,23 +87,63 @@ fun DashboardScreen(
     val p = profile
     val xpIntoLevel = if (p == null) 0 else p.totalXp - SystemDefaults.totalXpForLevel(p.level)
     val xpNeed = if (p == null) 1 else SystemDefaults.xpForNextLevel(p.level)
-    val completed = quests.count { it.status == QuestStatus.COMPLETED.name }
-    val total = quests.size
+    val completed = homeSections.completedCount
+    val total = homeSections.totalCount
     val name = p?.name ?: "Hunter"
     val greeting = greetingForHour(java.time.LocalTime.now().hour)
     val dateLabel = LocalDate.now().format(
         DateTimeFormatter.ofPattern("EEEE · MMMM d", Locale.getDefault()),
     )
+    val actionableAttrs = attributes.filter {
+        AnalyticsService.isAttributeActionable(it.code, modules)
+    }
     val attrDisplays = attributeDisplays(
-        codes = attributes.map { it.code },
-        values = attributes.map { it.currentValue },
-        lifetimeXp = attributes.map { it.lifetimeXp },
+        codes = actionableAttrs.map { it.code },
+        values = actionableAttrs.map { it.currentValue },
+        lifetimeXp = actionableAttrs.map { it.lifetimeXp },
     )
     val insight = attributeInsight(
-        codes = attributes.map { it.code },
-        values = attributes.map { it.currentValue },
+        codes = actionableAttrs.map { it.code },
+        values = actionableAttrs.map { it.currentValue },
     )
     val streakDays = streak?.current ?: 0
+    val allDone = total > 0 && completed == total
+    val empty = total == 0
+
+    fun navigateQuestAction(item: HomeQuestItem) {
+        val action = QuestDestinationResolver.resolve(
+            priorityTags = item.priorityTags,
+            verificationType = item.instance.verificationType,
+            status = item.instance.status,
+        )
+        QuestDestinationResolver.dispatch(
+            action = action,
+            onFitness = onOpenWorkout,
+            onNutrition = onOpenNutrition,
+            onCareer = onOpenCareer,
+            onModules = onOpenModules,
+            onCompleteInPlace = {
+                val status = item.instance.status
+                if (status == QuestStatus.AVAILABLE.name || status == QuestStatus.IN_PROGRESS.name) {
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            container.questCompletion.complete(item.instance.id)
+                        }
+                        onMessage(questCompletionUserMessage(result))
+                    }
+                }
+            },
+        )
+    }
+
+    fun undoQuest(item: HomeQuestItem) {
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                container.questCompletion.undo(item.instance.id)
+            }
+            onMessage(if (ok) "Quest undone" else "Could not undo quest")
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         EnergyFieldBackground(Modifier.fillMaxSize())
@@ -150,6 +191,7 @@ fun DashboardScreen(
                     xpIntoLevel = xpIntoLevel,
                     xpNeed = xpNeed,
                     greeting = greeting,
+                    activeModulesLabel = ModuleScope.activeModulesSummary(modules),
                 )
             }
 
@@ -160,61 +202,89 @@ fun DashboardScreen(
                     xpLabel = "+$xpLast7Days XP · 7D",
                     streakDays = streakDays,
                 )
+                if (!empty && xpNeed > 0) {
+                    Spacer(Modifier.height(Spacing.xs))
+                    Text(
+                        "${(xpNeed - xpIntoLevel).coerceAtLeast(0)} XP to next level",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
 
-            item {
-                SystemSectionHeader(tag = "Today's mission")
-                Spacer(Modifier.height(Spacing.xs))
-                val action = nextAction
-                if (action == null) {
+            when {
+                empty -> item {
+                    SystemSectionHeader(tag = "TODAY'S PRIORITIES")
+                    Spacer(Modifier.height(Spacing.xs))
                     SystemIdleEmpty(
+                        title = "No active priorities",
+                        subtitle = "There is nothing waiting for you right now.",
                         actionLabel = "View quests",
                         onAction = onOpenMissions,
                     )
-                } else {
+                }
+                allDone -> item {
+                    SystemSectionHeader(tag = "TODAY'S PRIORITIES")
+                    Spacer(Modifier.height(Spacing.xs))
                     GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level2) {
                         Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                             Text(
-                                humanizeSuggestionTitle(action.title),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
+                                "You followed through on today's priorities.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            if (action.detail.isNotBlank()) {
-                                Text(
-                                    humanizeNextActionDetail(action.detail),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            SystemActionButton(
-                                label = "Begin",
-                                onClick = {
-                                    when (action.routeHint) {
-                                        "quests" -> onOpenMissions()
-                                        "fitness" -> onOpenWorkout()
-                                        "nutrition" -> onOpenNutrition()
-                                        "career" -> onOpenCareer()
-                                        else -> onOpenMissions()
-                                    }
-                                },
+                            GhostTextButton(label = "View progress", onClick = onOpenCharacter)
+                            GhostTextButton(label = "View all quests", onClick = onOpenMissions)
+                        }
+                    }
+                    if (homeSections.other.isNotEmpty()) {
+                        Spacer(Modifier.height(Spacing.md))
+                        SystemSectionHeader(tag = "COMPLETED")
+                        Spacer(Modifier.height(Spacing.xs))
+                        homeSections.other.forEach { item ->
+                            HomeQuestCardRow(
+                                item = item,
+                                onPrimary = { navigateQuestAction(item) },
+                                onUndo = { undoQuest(item) },
                             )
-                            val priorityQuest = quests.firstOrNull {
-                                it.status == QuestStatus.AVAILABLE.name &&
-                                    it.title.equals(action.title, ignoreCase = true)
-                            } ?: quests.firstOrNull { it.status == QuestStatus.AVAILABLE.name }
-                            if (priorityQuest != null) {
-                                GhostTextButton(
-                                    label = "Complete now",
-                                    onClick = {
-                                        scope.launch {
-                                            val result = withContext(Dispatchers.IO) {
-                                                container.questCompletion.complete(priorityQuest.id)
-                                            }
-                                            onMessage(questCompletionUserMessage(result))
-                                        }
-                                    },
-                                )
+                            Spacer(Modifier.height(Spacing.xs))
+                        }
+                    }
+                }
+                else -> {
+                    if (homeSections.priorities.isNotEmpty()) {
+                        item {
+                            SystemSectionHeader(tag = "YOUR PRIORITIES")
+                            Spacer(Modifier.height(Spacing.xs))
+                            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                                homeSections.priorities.forEach { item ->
+                                    HomeQuestCardRow(
+                                        item = item,
+                                        onPrimary = { navigateQuestAction(item) },
+                                        onUndo = { undoQuest(item) },
+                                    )
+                                }
                             }
+                        }
+                    }
+                    if (homeSections.other.isNotEmpty()) {
+                        item {
+                            SystemSectionHeader(tag = "OTHER TASKS")
+                            Spacer(Modifier.height(Spacing.xs))
+                            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                                homeSections.other.forEach { item ->
+                                    HomeQuestCardRow(
+                                        item = item,
+                                        onPrimary = { navigateQuestAction(item) },
+                                        onUndo = { undoQuest(item) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (homeSections.showViewAll) {
+                        item {
+                            GhostTextButton(label = "View all quests", onClick = onOpenMissions)
                         }
                     }
                 }
@@ -224,6 +294,8 @@ fun DashboardScreen(
                 AttributeSummary(
                     displays = attrDisplays,
                     insight = insight,
+                    compactLimit = 3,
+                    sectionTag = "YOUR CURRENT STATE",
                     onViewCharacter = onOpenCharacter,
                 )
             }
@@ -310,6 +382,35 @@ fun DashboardScreen(
     }
 }
 
+@Composable
+private fun HomeQuestCardRow(
+    item: HomeQuestItem,
+    onPrimary: () -> Unit,
+    onUndo: () -> Unit,
+) {
+    val q = item.instance
+    val completed = q.status == QuestStatus.COMPLETED.name
+    val action = QuestDestinationResolver.resolve(
+        priorityTags = item.priorityTags,
+        verificationType = q.verificationType,
+        status = q.status,
+    )
+    MissionQuestCard(
+        type = q.type,
+        title = humanizeSuggestionTitle(q.title),
+        baseXp = q.baseXp,
+        status = q.status,
+        rewardsJson = q.attributeRewardsJson,
+        verificationType = q.verificationType,
+        verificationTarget = q.verificationTarget,
+        verificationUnit = q.verificationUnit,
+        primaryLabel = action.label,
+        deemphasized = completed,
+        onPrimary = onPrimary,
+        onUndo = if (completed) onUndo else null,
+    )
+}
+
 internal fun questCompletionUserMessage(result: QuestCompletionService.Result): String = when (result) {
     is QuestCompletionService.Result.Completed ->
         SystemMessages.questCompletedFeedback(result.xp)
@@ -321,4 +422,6 @@ internal fun questCompletionUserMessage(result: QuestCompletionService.Result): 
         "Quest can't be completed right now"
     QuestCompletionService.Result.DailyCapReached ->
         "Daily XP cap reached"
+    QuestCompletionService.Result.ModuleDisabled ->
+        "This quest belongs to a disabled module"
 }

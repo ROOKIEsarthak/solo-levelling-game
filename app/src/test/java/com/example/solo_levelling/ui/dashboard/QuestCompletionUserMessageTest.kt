@@ -50,10 +50,10 @@ class QuestCompletionUserMessageTest {
     }
 
     @Test
-    fun e_dailyCapReached_calmCopy() {
+    fun e_moduleDisabled_calmCopy() {
         assertEquals(
-            "Daily XP cap reached",
-            questCompletionUserMessage(QuestCompletionService.Result.DailyCapReached),
+            "This quest belongs to a disabled module",
+            questCompletionUserMessage(QuestCompletionService.Result.ModuleDisabled),
         )
     }
 }

@@ -25,6 +25,7 @@ import com.example.solo_levelling.data.db.entity.UserConfigEntity
 import com.example.solo_levelling.data.seed.SeedData
 import com.example.solo_levelling.data.db.entity.WorkoutDayPlanEntity
 import com.example.solo_levelling.data.db.entity.WorkoutLogEntity
+import com.example.solo_levelling.data.db.entity.WorkoutRestKind
 import com.example.solo_levelling.data.db.entity.WorkoutRoutineEntity
 import com.example.solo_levelling.domain.model.AttributeCode
 import java.time.LocalDate
@@ -197,13 +198,50 @@ class ModuleService(
     suspend fun isWorkoutSplitLocked(): Boolean =
         !db.configDao().get("workout_split_id")?.value.isNullOrBlank()
 
-    /** Returns error message on failure, null on success.
-     *  [dayMapCsv] format: `"1:1,2:3,3:5"` (split day → ISO weekday 1=Mon…7=Sun).
+    suspend fun workoutSplitAppliedAtMs(): Long? =
+        db.configDao().get(WorkoutSplitChangeLogic.KEY_APPLIED_AT)?.value?.toLongOrNull()
+
+    suspend fun isEarlySplitChange(nowEpochMs: Long = clock.nowEpochMs()): Boolean {
+        val applied = workoutSplitAppliedAtMs()
+        if (applied != null) return WorkoutSplitChangeLogic.isEarlyChange(applied, nowEpochMs)
+        // Locked split without timestamp (legacy) → treat as early until re-applied
+        return isWorkoutSplitLocked()
+    }
+
+    suspend fun weeksOnCurrentSplit(nowEpochMs: Long = clock.nowEpochMs()): Long =
+        WorkoutSplitChangeLogic.weeksHeld(workoutSplitAppliedAtMs(), nowEpochMs)
+
+    suspend fun workoutProgressionScale(nowEpochMs: Long = clock.nowEpochMs()): Float {
+        val appliedAt = workoutSplitAppliedAtMs()
+        val stored = db.configDao().get(WorkoutSplitChangeLogic.KEY_SCALE)?.value?.toFloatOrNull()
+        val scale = WorkoutSplitChangeLogic.resolvedScale(appliedAt, stored, nowEpochMs)
+        if (scale == 1f && stored != null && stored != 1f) {
+            db.configDao().upsert(UserConfigEntity(WorkoutSplitChangeLogic.KEY_SCALE, "1.0"))
+        }
+        return scale
+    }
+
+    /**
+     * Returns error message on failure, null on success.
+     * [dayMapCsv] format: `"1:1,2:3,3:5"` (split day → ISO weekday 1=Mon…7=Sun).
+     * When [confirmEarlyChange] is false and the current split is held under 6 months,
+     * returns a sentinel requiring UI confirmation instead of applying.
      */
-    suspend fun applyWorkoutSplit(splitId: String, dayMapCsv: String): String? {
+    suspend fun applyWorkoutSplit(
+        splitId: String,
+        dayMapCsv: String,
+        confirmEarlyChange: Boolean = false,
+    ): String? {
         val map = WorkoutSplitLogic.parseDayMap(dayMapCsv)
         val result = WorkoutSplitLogic.buildRoutine(splitId, map)
         if (result.error != null) return result.error
+
+        val now = clock.nowEpochMs()
+        val early = isEarlySplitChange(now)
+        if (early && !confirmEarlyChange) {
+            return EARLY_SPLIT_CHANGE_REQUIRED
+        }
+
         db.configDao().upsert(UserConfigEntity("workout_split_id", splitId))
         db.configDao().upsert(
             UserConfigEntity("workout_split_map", WorkoutSplitLogic.encodeDayMap(map)),
@@ -214,7 +252,23 @@ class ModuleService(
             )
         }
         db.moduleDao().upsertWorkoutRoutine(result.routine!!)
+        db.configDao().upsert(UserConfigEntity(WorkoutSplitChangeLogic.KEY_APPLIED_AT, now.toString()))
+        val scale = WorkoutSplitChangeLogic.scaleForNewApply(wasEarly = early)
+        db.configDao().upsert(UserConfigEntity(WorkoutSplitChangeLogic.KEY_SCALE, scale.toString()))
+        reseedTodayLogIfEmpty()
         return null
+    }
+
+    /** Drop today's unfinished log so the next open reseeds from the new routine. */
+    private suspend fun reseedTodayLogIfEmpty() {
+        val today = todayStr()
+        val existing = db.moduleDao().getWorkoutLog(today) ?: return
+        if (existing.isTrainingDayComplete()) return
+        db.moduleDao().deleteWorkoutLog(today)
+    }
+
+    companion object {
+        const val EARLY_SPLIT_CHANGE_REQUIRED = "EARLY_SPLIT_CHANGE_REQUIRED"
     }
 
     suspend fun saveRoutineDay(dayKey: String, plan: WorkoutDayPlanEntity) {
@@ -290,10 +344,48 @@ class ModuleService(
         val log = WorkoutLogEntity(
             date = resolved,
             dayOfWeek = dayKey,
-            workoutName = if (plan.enabled) plan.name.ifBlank { "Workout" } else "Workout",
+            workoutName = if (plan.enabled) plan.name.ifBlank { "Workout" } else "Rest",
             exercises = exercises,
         )
         db.moduleDao().upsertWorkoutLog(log)
+        return db.moduleDao().getWorkoutLog(resolved)!!
+    }
+
+    /**
+     * Completes a rest day. [activeRest] awards half training XP (scaled); complete rest persists only.
+     * Idempotent: no-op if the day already has sets or a restKind.
+     */
+    suspend fun completeRestDay(date: String, activeRest: Boolean): WorkoutLogEntity {
+        val resolved = date.ifBlank { todayStr() }
+        val existing = startOrGetWorkoutLog(resolved)
+        if (existing.isTrainingDayComplete()) return existing
+
+        val kind = if (activeRest) WorkoutRestKind.ACTIVE_REST else WorkoutRestKind.COMPLETE_REST
+        val updated = existing.copy(
+            workoutName = "Rest",
+            restKind = kind,
+            exercises = emptyList(),
+        )
+        db.moduleDao().upsertWorkoutLog(updated)
+
+        if (activeRest) {
+            val modules = progression.currentModules()
+            if (modules.workout) {
+                val scale = workoutProgressionScale()
+                val xp = (20 * scale).toInt().coerceAtLeast(0)
+                val str = (10 * scale).toInt().coerceAtLeast(0)
+                val vit = (10 * scale).toInt().coerceAtLeast(0)
+                progression.award(
+                    "WORKOUT",
+                    "workout_${updated.date}",
+                    xp,
+                    mapOf(AttributeCode.STR to str, AttributeCode.VIT to vit),
+                    metadataJson = """{"module":"WORKOUT"}""",
+                    applyDailyCap = true,
+                    modules = modules,
+                )
+            }
+        }
         return db.moduleDao().getWorkoutLog(resolved)!!
     }
 
@@ -301,13 +393,22 @@ class ModuleService(
         val id = db.moduleDao().upsertWorkoutLog(log)
         val hasSets = log.exercises.any { it.sets.isNotEmpty() }
         if (hasSets) {
-            progression.award(
-                "WORKOUT",
-                "workout_${log.date}",
-                40,
-                mapOf(AttributeCode.STR to 30, AttributeCode.VIT to 10),
-                applyDailyCap = true,
-            )
+            val modules = progression.currentModules()
+            if (modules.workout) {
+                val scale = workoutProgressionScale()
+                val xp = (40 * scale).toInt().coerceAtLeast(0)
+                val str = (30 * scale).toInt().coerceAtLeast(0)
+                val vit = (10 * scale).toInt().coerceAtLeast(0)
+                progression.award(
+                    "WORKOUT",
+                    "workout_${log.date}",
+                    xp,
+                    mapOf(AttributeCode.STR to str, AttributeCode.VIT to vit),
+                    metadataJson = """{"module":"WORKOUT"}""",
+                    applyDailyCap = true,
+                    modules = modules,
+                )
+            }
             verification.tryAutoComplete(log.date)
         }
         return id
@@ -371,13 +472,18 @@ class ModuleService(
         db.moduleDao().upsertDietLog(withTotals)
         val hasFood = log.meals.any { it.foods.isNotEmpty() }
         if (hasFood) {
-            progression.award(
-                "NUTRITION",
-                "nutrition_${log.date}",
-                15,
-                mapOf(AttributeCode.VIT to 15),
-                applyDailyCap = true,
-            )
+            val modules = progression.currentModules()
+            if (modules.diet) {
+                progression.award(
+                    "NUTRITION",
+                    "nutrition_${log.date}",
+                    15,
+                    mapOf(AttributeCode.VIT to 15),
+                    metadataJson = """{"module":"DIET"}""",
+                    applyDailyCap = true,
+                    modules = modules,
+                )
+            }
             verification.tryAutoComplete(log.date)
         }
     }
@@ -540,7 +646,15 @@ class ModuleService(
             BossEntity(title = title, description = description, xpReward = xpReward),
         )
         if (linkDefaultQuests) {
-            for (key in listOf("dsa_daily", "workout_daily", "system_design")) {
+            val modules = progression.currentModules()
+            val keys = buildList {
+                if (modules.career) {
+                    add("dsa_daily")
+                    add("system_design")
+                }
+                if (modules.workout) add("workout_daily")
+            }
+            for (key in keys) {
                 db.moduleDao().upsertBossQuest(
                     BossQuestEntity(bossId = bossId, templateKey = key, weight = 1f),
                 )

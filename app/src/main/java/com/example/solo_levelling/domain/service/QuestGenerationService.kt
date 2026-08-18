@@ -44,7 +44,12 @@ class QuestGenerationService(
         generateWeeklyIfNeeded(today)
         generateMilestonesIfNeeded(today)
         val dateStr = today.format(dateFmt)
-        val count = db.questDao().getInstancesForDate(dateStr).size
+        val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
+        val modules = resolveModules(profile?.onboardingDone == true)
+        val tagsById = db.questDao().getActiveTemplates().associate { it.id to it.priorityTags }
+        val count = db.questDao().getInstancesForDate(dateStr).count { instance ->
+            ModuleScope.allowsQuestTemplate(tagsById[instance.templateId].orEmpty(), modules)
+        }
         eventBus.publish(DomainEvent.DailyQuestsReady(dateStr, count))
     }
 
@@ -61,7 +66,7 @@ class QuestGenerationService(
             filterByModules(db.questDao().getActiveTemplates(), modules),
             priorities,
         )
-        val completionRate = recentCompletionRate(date)
+        val completionRate = recentCompletionRate(date, modules)
         for (template in templates) {
             if (template.type == "WEEKLY" || template.type == "RECOVERY" || template.type == "MILESTONE") continue
             val days = template.scheduleDaysCsv.split(",").mapNotNull { it.trim().toIntOrNull() }
@@ -100,7 +105,7 @@ class QuestGenerationService(
             ),
             priorities,
         )
-        val completionRate = recentCompletionRate(today)
+        val completionRate = recentCompletionRate(today, modules)
         for (template in templates) {
             val days = template.scheduleDaysCsv.split(",").mapNotNull { it.trim().toIntOrNull() }
             val targetDay = days.firstOrNull() ?: 7
@@ -128,8 +133,13 @@ class QuestGenerationService(
     private suspend fun generateMilestonesIfNeeded(today: LocalDate) {
         val dateStr = today.format(dateFmt)
         val weekEnd = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).plusDays(6).format(dateFmt)
-        val templates = db.questDao().getActiveTemplates().filter { it.type == "MILESTONE" }
-        val completionRate = recentCompletionRate(today)
+        val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
+        val modules = resolveModules(profile?.onboardingDone == true)
+        val templates = filterByModules(
+            db.questDao().getActiveTemplates().filter { it.type == "MILESTONE" },
+            modules,
+        )
+        val completionRate = recentCompletionRate(today, modules)
         for (template in templates) {
             if (db.questDao().countInstancesForTemplate(template.id) > 0) continue
             val scheduled = if (template.scheduleDaysCsv.isBlank()) dateStr else weekEnd
@@ -185,13 +195,17 @@ class QuestGenerationService(
         }
     }
 
-    private suspend fun recentCompletionRate(today: LocalDate): Float {
+    private suspend fun recentCompletionRate(today: LocalDate, modules: EnabledModules): Float {
         val weekStart = today.minusDays(6).format(dateFmt)
         val weekEnd = today.format(dateFmt)
-        val total = db.questDao().countTotalInRange(weekStart, weekEnd)
-        if (total == 0) return 0.7f
-        val completed = db.questDao().countCompletedInRange(weekStart, weekEnd)
-        return completed.toFloat() / total.toFloat()
+        val instances = db.questDao().getInstancesInRange(weekStart, weekEnd)
+            .filter { instance ->
+                val tags = db.questDao().getTemplateById(instance.templateId)?.priorityTags.orEmpty()
+                ModuleScope.allowsQuestTemplate(tags, modules)
+            }
+        if (instances.isEmpty()) return 0.7f
+        val completed = instances.count { it.status == QuestStatus.COMPLETED.name }
+        return completed.toFloat() / instances.size.toFloat()
     }
 
     private suspend fun resolveModules(onboardingDone: Boolean): EnabledModules =
@@ -206,19 +220,7 @@ class QuestGenerationService(
         templates: List<com.example.solo_levelling.data.db.entity.QuestTemplateEntity>,
         modules: EnabledModules,
     ): List<com.example.solo_levelling.data.db.entity.QuestTemplateEntity> =
-        templates.filter { template ->
-            val tags = template.priorityTags.split(",").map { it.trim().lowercase() }.filter { it.isNotEmpty() }
-            val moduleTags = tags.filter { it.startsWith("module_") }
-            if (moduleTags.isEmpty()) return@filter true
-            moduleTags.any { tag ->
-                when (tag) {
-                    "module_career" -> modules.career
-                    "module_workout" -> modules.workout
-                    "module_diet" -> modules.diet
-                    else -> true
-                }
-            }
-        }
+        templates.filter { ModuleScope.allowsQuestTemplate(it.priorityTags, modules) }
 
     private fun filterByPriority(
         templates: List<com.example.solo_levelling.data.db.entity.QuestTemplateEntity>,

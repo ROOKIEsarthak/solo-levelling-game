@@ -35,7 +35,7 @@ class OnboardingResetTest {
         db = JsonDatabase(File(context.cacheDir, "test-db-${System.nanoTime()}").also { it.mkdirs() })
         clock = FakeAppClock(fixedDate = LocalDate.of(2026, 8, 15))
         val questGen = QuestGenerationService(db, clock, EventBus(), AdaptiveService(db, clock), kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined))
-        onboarding = OnboardingService(db, clock, questGen)
+        onboarding = OnboardingService(db, clock, questGen, ProgressionService(db, EventBus(), clock))
     }
 
     @After

@@ -1,7 +1,9 @@
 package com.example.solo_levelling.ui.navigation
 
 sealed class AppRoute(val route: String) {
+    data object SystemConsent : AppRoute("system_consent")
     data object Onboarding : AppRoute("onboarding")
+    data object SystemAnalysis : AppRoute("system_analysis")
     data object Dashboard : AppRoute("dashboard")
     data object Career : AppRoute("career")
     data object History : AppRoute("history")

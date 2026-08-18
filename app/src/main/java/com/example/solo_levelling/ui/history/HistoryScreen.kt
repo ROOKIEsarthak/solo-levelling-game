@@ -50,6 +50,8 @@ fun HistoryScreen(
     container: AppContainer,
     onOpenWorkout: () -> Unit,
     onOpenDiet: () -> Unit,
+    showWorkout: Boolean = true,
+    showDiet: Boolean = true,
 ) {
     val vm: HistoryViewModel = viewModel(factory = HistoryViewModel.factory(container))
     val recentXp by vm.recentXp.collectAsStateWithLifecycle()
@@ -69,7 +71,10 @@ fun HistoryScreen(
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
                 SystemSectionHeader(tag = "ACTIVITY LOG")
                 Text(
-                    "Recent XP, workouts, and quick links",
+                    when {
+                        showWorkout -> "Recent XP, workouts, and quick links"
+                        else -> "Recent XP and activity"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.onSurfaceVariant,
                 )
@@ -101,35 +106,43 @@ fun HistoryScreen(
             }
         }
 
-        GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                SystemSectionHeader(tag = "QUICK LINKS")
-                GhostTextButton(label = "OPEN WORKOUT HISTORY", onClick = onOpenWorkout)
-                GhostTextButton(label = "OPEN DIET HISTORY", onClick = onOpenDiet)
+        if (showWorkout || showDiet) {
+            GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    SystemSectionHeader(tag = "QUICK LINKS")
+                    if (showWorkout) {
+                        GhostTextButton(label = "OPEN WORKOUT HISTORY", onClick = onOpenWorkout)
+                    }
+                    if (showDiet) {
+                        GhostTextButton(label = "OPEN DIET HISTORY", onClick = onOpenDiet)
+                    }
+                }
             }
         }
 
-        SystemSectionHeader(tag = "RECENT WORKOUTS")
+        if (showWorkout) {
+            SystemSectionHeader(tag = "RECENT WORKOUTS")
 
-        if (recentWorkouts.isEmpty()) {
-            SystemIdleEmpty(
-                title = "No workouts logged",
-                subtitle = "Training sessions will appear here once recorded.",
-                actionLabel = "OPEN WORKOUT",
-                onAction = onOpenWorkout,
-            )
-        } else {
-            recentWorkouts.forEach { log ->
-                AccentLogCard(
-                    accent = SystemSecondary,
-                    borderAccent = SystemSecondary.copy(alpha = 0.35f),
-                ) {
-                    LogEntryRow(
-                        title = log.workoutName.ifBlank { "Workout" },
-                        subtitle = "${log.date} · ${log.durationMinutes} min",
-                        xpLabel = "SESSION",
-                        xpColor = SystemSecondary,
-                    )
+            if (recentWorkouts.isEmpty()) {
+                SystemIdleEmpty(
+                    title = "No workouts logged",
+                    subtitle = "Training sessions will appear here once recorded.",
+                    actionLabel = "OPEN WORKOUT",
+                    onAction = onOpenWorkout,
+                )
+            } else {
+                recentWorkouts.forEach { log ->
+                    AccentLogCard(
+                        accent = SystemSecondary,
+                        borderAccent = SystemSecondary.copy(alpha = 0.35f),
+                    ) {
+                        LogEntryRow(
+                            title = log.workoutName.ifBlank { "Workout" },
+                            subtitle = "${log.date} · ${log.durationMinutes} min",
+                            xpLabel = "SESSION",
+                            xpColor = SystemSecondary,
+                        )
+                    }
                 }
             }
         }

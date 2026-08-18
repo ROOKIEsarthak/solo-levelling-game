@@ -39,6 +39,7 @@ import com.example.solo_levelling.data.seed.WorkoutCatalog
 import com.example.solo_levelling.domain.service.EnabledModules
 import com.example.solo_levelling.domain.service.EntryValidation
 import com.example.solo_levelling.domain.service.ModuleFlags
+import com.example.solo_levelling.domain.service.ModuleService
 import com.example.solo_levelling.domain.service.WorkoutSplitLogic
 import com.example.solo_levelling.ui.components.EnergyFieldBackground
 import com.example.solo_levelling.ui.components.GlassLevel
@@ -66,6 +67,19 @@ internal fun systemWipeDescription(): String =
     "Clears XP, quests, streaks, achievements and module logs " +
         "(workout/diet history, metrics). Preserves your name and configs. " +
         "Onboarding will run again so you can reconfigure modules."
+
+internal fun settingsSplitIsLocked(savedSplitId: String?): Boolean =
+    !savedSplitId.isNullOrBlank()
+
+internal fun settingsCurrentSplitLines(splitId: String, dayMap: Map<Int, Int>): List<String> {
+    val split = WorkoutCatalog.findSplit(splitId) ?: return listOf(splitId)
+    return split.schedule.sortedBy { it.day }.map { slot ->
+        val name = WorkoutSplitLogic.workoutLabelForSlot(splitId, slot.day)
+        val iso = dayMap[slot.day]
+        val day = WorkoutSplitLogic.weekdayLabels.firstOrNull { it.first == iso }?.second ?: "—"
+        "$name · $day"
+    }
+}
 
 @Composable
 fun SettingsScreen(
@@ -123,6 +137,11 @@ fun SettingsScreen(
     var wipeConfirmInput by remember { mutableStateOf("") }
     var modules by remember { mutableStateOf(EnabledModules()) }
     var pendingModuleDisable by remember { mutableStateOf<String?>(null) }
+    var showEarlySplitDialog by remember { mutableStateOf(false) }
+    var pendingSplitCsv by remember { mutableStateOf<String?>(null) }
+    var weeksOnSplit by remember { mutableStateOf(0L) }
+    var changingSplit by remember { mutableStateOf(false) }
+    val splitLocked = settingsSplitIsLocked(workoutSplitConfig?.value)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val notificationsOn = notificationsConfig?.value != "false"
@@ -263,6 +282,71 @@ fun SettingsScreen(
             },
             dismissButton = {
                 GhostTextButton(label = "ABORT", onClick = { pendingModuleDisable = null })
+            },
+        )
+    }
+
+    if (showEarlySplitDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showEarlySplitDialog = false
+                pendingSplitCsv = null
+            },
+            title = { Text("Your current split") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        if (weeksOnSplit > 0) {
+                            "You've been following this split for $weeksOnSplit weeks."
+                        } else {
+                            "You've recently set this split."
+                        },
+                    )
+                    Text(
+                        "Consistency matters more than constantly changing the plan. " +
+                            "For meaningful progress, consider following your current split " +
+                            "for at least 6 months before changing it.",
+                    )
+                    Text(
+                        "Changing early may reduce workout progression rewards. " +
+                            "Your existing progress remains yours.",
+                    )
+                }
+            },
+            confirmButton = {
+                SystemActionButton(
+                    label = "CHANGE SPLIT",
+                    onClick = {
+                        val csv = pendingSplitCsv
+                        showEarlySplitDialog = false
+                        pendingSplitCsv = null
+                        if (csv != null) {
+                            scope.launch {
+                                val err = container.modules.applyWorkoutSplit(
+                                    workoutSplitId,
+                                    csv,
+                                    confirmEarlyChange = true,
+                                )
+                                if (err != null) {
+                                    onMessage(err)
+                                } else {
+                                    changingSplit = false
+                                    onMessage("Config saved · split applied")
+                                }
+                            }
+                        }
+                    },
+                )
+            },
+            dismissButton = {
+                GhostTextButton(
+                    label = "KEEP CURRENT",
+                    onClick = {
+                        showEarlySplitDialog = false
+                        pendingSplitCsv = null
+                        changingSplit = false
+                    },
+                )
             },
         )
     }
@@ -429,49 +513,79 @@ fun SettingsScreen(
                 if (modules.workout) {
                     Text("Workout split", style = MaterialTheme.typography.titleSmall)
                     val selectedSplit = WorkoutCatalog.findSplit(workoutSplitId)
-                    Text(
-                        "Assign each workout to a weekday (${selectedSplit?.daysPerWeek ?: "?"} days/week).",
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        WorkoutCatalog.splits.forEach { split ->
-                            FilterChip(
-                                selected = split.id == workoutSplitId,
-                                onClick = { workoutSplitId = split.id },
-                                label = { Text("${split.name} (${split.daysPerWeek}d)") },
-                                colors = chipColors,
+                    val showEditor = !splitLocked || changingSplit
+                    if (!showEditor) {
+                        Text(
+                            selectedSplit?.let { "${it.name} (${it.daysPerWeek}d)" } ?: workoutSplitId,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        settingsCurrentSplitLines(workoutSplitId, splitDayMap).forEach { line ->
+                            Text(
+                                line,
+                                color = colors.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
                             )
                         }
-                    }
-                    selectedSplit?.schedule?.sortedBy { it.day }?.forEach { slot ->
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                WorkoutSplitLogic.workoutLabelForSlot(workoutSplitId, slot.day),
-                                style = MaterialTheme.typography.labelMedium,
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                WorkoutSplitLogic.weekdayLabels.forEach { (iso, label) ->
-                                    FilterChip(
-                                        selected = splitDayMap[slot.day] == iso,
-                                        onClick = { splitDayMap = splitDayMap + (slot.day to iso) },
-                                        label = { Text(label) },
-                                        colors = chipColors,
-                                    )
+                        GhostTextButton(
+                            label = "Change split",
+                            onClick = { changingSplit = true },
+                        )
+                    } else {
+                        Text(
+                            if (splitLocked) {
+                                "Pick a new split and weekdays, then save config."
+                            } else {
+                                "Assign each workout to a weekday (${selectedSplit?.daysPerWeek ?: "?"} days/week)."
+                            },
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            WorkoutCatalog.splits.forEach { split ->
+                                FilterChip(
+                                    selected = split.id == workoutSplitId,
+                                    onClick = { workoutSplitId = split.id },
+                                    label = { Text("${split.name} (${split.daysPerWeek}d)") },
+                                    colors = chipColors,
+                                )
+                            }
+                        }
+                        selectedSplit?.schedule?.sortedBy { it.day }?.forEach { slot ->
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    WorkoutSplitLogic.workoutLabelForSlot(workoutSplitId, slot.day),
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    WorkoutSplitLogic.weekdayLabels.forEach { (iso, label) ->
+                                        FilterChip(
+                                            selected = splitDayMap[slot.day] == iso,
+                                            onClick = { splitDayMap = splitDayMap + (slot.day to iso) },
+                                            label = { Text(label) },
+                                            colors = chipColors,
+                                        )
+                                    }
                                 }
                             }
                         }
-                    }
-                    remember(workoutSplitId, splitDayMap) {
-                        WorkoutSplitLogic.buildRoutine(workoutSplitId, splitDayMap).error
-                    }?.let { err ->
-                        Text(err, color = SystemError, style = MaterialTheme.typography.bodySmall)
+                        remember(workoutSplitId, splitDayMap) {
+                            WorkoutSplitLogic.buildRoutine(workoutSplitId, splitDayMap).error
+                        }?.let { err ->
+                            Text(err, color = SystemError, style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (splitLocked) {
+                            GhostTextButton(
+                                label = "Keep current split",
+                                onClick = { changingSplit = false },
+                            )
+                        }
                     }
                 }
                 Text("Notifications", style = MaterialTheme.typography.titleSmall)
@@ -553,24 +667,36 @@ fun SettingsScreen(
                                 container.db.configDao().upsert(UserConfigEntity("step_target", stepTarget.trim()))
                             }
                             container.db.configDao().upsert(UserConfigEntity("goal_title", goalTitle))
-                            if (goalTitle.isNotBlank()) {
+                            if (modules.career && goalTitle.isNotBlank()) {
                                 container.db.configDao().upsert(UserConfigEntity("career_next_goal", goalTitle))
                             }
-                            if (modules.workout && workoutSplitId.isNotBlank()) {
+                            val shouldApplySplit = modules.workout &&
+                                workoutSplitId.isNotBlank() &&
+                                (!splitLocked || changingSplit)
+                            if (shouldApplySplit) {
                                 container.db.configDao().upsert(UserConfigEntity("schedule_days_csv", scheduleDays.trim()))
                                 val mapError = WorkoutSplitLogic.buildRoutine(workoutSplitId, splitDayMap).error
                                 if (mapError != null) {
                                     onMessage(mapError)
                                     return@launch
                                 }
+                                val csv = WorkoutSplitLogic.encodeDayMap(splitDayMap)
                                 val splitError = container.modules.applyWorkoutSplit(
                                     workoutSplitId,
-                                    WorkoutSplitLogic.encodeDayMap(splitDayMap),
+                                    csv,
+                                    confirmEarlyChange = false,
                                 )
+                                if (splitError == ModuleService.EARLY_SPLIT_CHANGE_REQUIRED) {
+                                    pendingSplitCsv = csv
+                                    weeksOnSplit = container.modules.weeksOnCurrentSplit()
+                                    showEarlySplitDialog = true
+                                    return@launch
+                                }
                                 if (splitError != null) {
                                     onMessage(splitError)
                                     return@launch
                                 }
+                                changingSplit = false
                                 onMessage("Config saved · split applied")
                             } else {
                                 onMessage("Config saved")

@@ -31,8 +31,17 @@ class DayBoundaryService(
     suspend fun markMissedQuestsForYesterday(yesterday: LocalDate) {
         val yesterdayStr = yesterday.format(dateFmt)
         val todayStr = yesterday.plusDays(1).format(dateFmt)
+        val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
+        val modules = ModuleFlags.resolve(
+            onboardingDone = profile?.onboardingDone == true,
+            career = db.configDao().get(ModuleFlags.KEY_CAREER)?.value,
+            workout = db.configDao().get(ModuleFlags.KEY_WORKOUT)?.value,
+            diet = db.configDao().get(ModuleFlags.KEY_DIET)?.value,
+        )
+        val tagsById = db.questDao().getActiveTemplates().associate { it.id to it.priorityTags }
         val instances = db.questDao().getInstancesBeforeDate(todayStr)
             .filter { it.scheduledDate == yesterdayStr }
+            .filter { ModuleScope.allowsQuestTemplate(tagsById[it.templateId].orEmpty(), modules) }
 
         val events = mutableListOf<DomainEvent>()
         for (instance in instances) {

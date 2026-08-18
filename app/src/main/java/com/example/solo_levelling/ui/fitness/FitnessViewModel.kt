@@ -7,6 +7,7 @@ import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.core.config.SystemDefaults
 import com.example.solo_levelling.data.db.entity.DietLogEntity
 import com.example.solo_levelling.data.db.entity.NutritionLogEntity
+import com.example.solo_levelling.data.db.entity.UserConfigEntity
 import com.example.solo_levelling.data.db.entity.WorkoutLogEntity
 import com.example.solo_levelling.data.db.entity.WorkoutRoutineEntity
 import java.time.ZoneId
@@ -45,6 +46,10 @@ class FitnessViewModel(
 
     fun selectWorkoutDate(date: String) {
         _selectedWorkoutDate.value = date
+    }
+
+    fun resetWorkoutDateToToday() {
+        _selectedWorkoutDate.value = null
     }
 
     fun selectDietDate(date: String) {
@@ -123,10 +128,10 @@ class FitnessViewModel(
             .map { it?.value?.toIntOrNull() ?: 1800 }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 1800)
 
-    val workoutSplitId: StateFlow<String> =
+    val workoutSplitId: StateFlow<String?> =
         container.db.configDao().observe("workout_split_id")
-            .map { it?.value.orEmpty() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
+            .map<UserConfigEntity?, String?> { it?.value.orEmpty() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     companion object {
         fun factory(container: AppContainer) = object : ViewModelProvider.Factory {

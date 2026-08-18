@@ -33,6 +33,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.data.db.entity.AchievementDefEntity
+import com.example.solo_levelling.domain.service.EnabledModules
+import com.example.solo_levelling.domain.service.ModuleScope
 import com.example.solo_levelling.ui.components.BracketLabel
 import com.example.solo_levelling.ui.components.EnergyFieldBackground
 import com.example.solo_levelling.ui.components.GlassLevel
@@ -50,6 +52,17 @@ import com.example.solo_levelling.ui.theme.SystemSurface
 internal fun achievementsCompletionFraction(unlockedCount: Int, totalCount: Int): String =
     "$unlockedCount/$totalCount"
 
+internal fun visibleAchievementDefs(
+    defs: List<AchievementDefEntity>,
+    modules: EnabledModules,
+): List<AchievementDefEntity> =
+    defs.filter { ModuleScope.allowsAchievement(it.criteriaType, modules, it.key) }
+
+internal fun visibleUnlockedCount(
+    unlockedKeys: Set<String>,
+    visibleDefs: List<AchievementDefEntity>,
+): Int = unlockedKeys.count { key -> visibleDefs.any { it.key == key } }
+
 @Composable
 fun AchievementsScreen(container: AppContainer) {
     val vm: AchievementsViewModel = viewModel(factory = AchievementsViewModel.factory(container))
@@ -57,7 +70,7 @@ fun AchievementsScreen(container: AppContainer) {
     val unlocked by vm.unlocked.collectAsStateWithLifecycle()
     val unlockedKeys = unlocked.map { it.achievementKey }.toSet()
     val colors = MaterialTheme.colorScheme
-    val unlockedCount = unlockedKeys.size
+    val unlockedCount = visibleUnlockedCount(unlockedKeys, defs)
     val completion = achievementsCompletionFraction(unlockedCount, defs.size)
 
     Box(Modifier.fillMaxSize()) {

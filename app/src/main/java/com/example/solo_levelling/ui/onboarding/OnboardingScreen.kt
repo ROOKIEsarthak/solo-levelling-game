@@ -13,9 +13,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -25,19 +30,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.solo_levelling.AppContainer
+import com.example.solo_levelling.data.seed.WorkoutCatalog
 import com.example.solo_levelling.domain.service.CareerGoalEngine
 import com.example.solo_levelling.domain.service.EnabledModules
+import com.example.solo_levelling.domain.service.EntryValidation
+import com.example.solo_levelling.domain.service.Macros
 import com.example.solo_levelling.domain.service.NutritionCalc
 import com.example.solo_levelling.domain.service.OnboardingInput
 import com.example.solo_levelling.domain.service.WorkoutSplitLogic
-import com.example.solo_levelling.data.seed.WorkoutCatalog
 import com.example.solo_levelling.ui.components.BracketLabel
 import com.example.solo_levelling.ui.components.CyberProgressBar
 import com.example.solo_levelling.ui.components.EnergyFieldBackground
@@ -49,7 +54,6 @@ import com.example.solo_levelling.ui.theme.JetBrainsMono
 import com.example.solo_levelling.ui.theme.SystemError
 import com.example.solo_levelling.ui.theme.SystemPrimary
 import com.example.solo_levelling.ui.theme.SystemSecondary
-import kotlinx.coroutines.launch
 
 internal enum class OnboardingStep {
     NAME,
@@ -121,7 +125,7 @@ private val isoByWeekdayLabel = mapOf(
 )
 
 @Composable
-fun OnboardingScreen(container: AppContainer, onDone: () -> Unit) {
+fun OnboardingScreen(onFinished: (OnboardingInput) -> Unit) {
     var stepIndex by remember { mutableIntStateOf(0) }
     var enabledModules by remember { mutableStateOf(EnabledModules()) }
     var name by remember { mutableStateOf("") }
@@ -136,10 +140,10 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit) {
     var targetCompanies by remember { mutableStateOf("") }
     var targetComp by remember { mutableStateOf("") }
     var targetTimeline by remember { mutableStateOf("") }
-    var age by remember { mutableStateOf("25") }
-    var sex by remember { mutableStateOf("male") }
-    var heightCm by remember { mutableStateOf("170") }
-    var weightKg by remember { mutableStateOf("70") }
+    var age by remember { mutableStateOf("") }
+    var sex by remember { mutableStateOf("") }
+    var heightCm by remember { mutableStateOf("") }
+    var weightKg by remember { mutableStateOf("") }
     var trainingExperience by remember { mutableStateOf("beginner") }
     var fitnessGoal by remember { mutableStateOf("maintenance") }
     var workoutSplitId by remember { mutableStateOf("ppl_ul") }
@@ -161,8 +165,8 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit) {
         if (stepIndex >= steps.size) stepIndex = steps.lastIndex.coerceAtLeast(0)
     }
     val currentStep = steps.getOrElse(stepIndex) { OnboardingStep.SUMMARY }
+    var submitting by remember { mutableStateOf(false) }
 
-    val scope = rememberCoroutineScope()
     val scroll = rememberScrollState()
     val bandOptions = listOf("student", "0-1", "1-2", "2-3", "3-5", "5+")
     val confidenceBands = listOf("Low", "Med", "High")
@@ -180,17 +184,30 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit) {
         cursorColor = SystemPrimary,
     )
 
-    val ageInt = age.toIntOrNull() ?: 25
-    val height = heightCm.toDoubleOrNull() ?: 170.0
-    val weight = weightKg.toDoubleOrNull() ?: 70.0
+    val ageInt = age.toIntOrNull()?.takeIf { it > 0 }
+    val height = heightCm.toDoubleOrNull()?.takeIf { it > 0.0 }
+    val weight = weightKg.toDoubleOrNull()?.takeIf { it > 0.0 }
     val years = yearsExperience.toDoubleOrNull() ?: 0.0
     val dsaConf = confidenceBandValue(dsaConfidenceBand)
     val sdConf = confidenceBandValue(sdConfidenceBand)
-    val bmi = NutritionCalc.bmi(height, weight)
-    val bmr = NutritionCalc.bmrMifflin(sex, ageInt, height, weight)
-    val tdee = NutritionCalc.tdee(bmr, activityLevel)
-    val computedCalories = NutritionCalc.goalCalories(tdee, fitnessGoal)
-    val macros = NutritionCalc.macroTargets(weight, computedCalories, fitnessGoal)
+    val bmi: Double?
+    val bmr: Double?
+    val tdee: Double?
+    val computedCalories: Int?
+    val macros: Macros?
+    if (ageInt != null && height != null && weight != null && (sex == "male" || sex == "female")) {
+        bmi = NutritionCalc.bmi(height, weight)
+        bmr = NutritionCalc.bmrMifflin(sex, ageInt, height, weight)
+        tdee = NutritionCalc.tdee(bmr, activityLevel)
+        computedCalories = NutritionCalc.goalCalories(tdee, fitnessGoal)
+        macros = NutritionCalc.macroTargets(weight, computedCalories, fitnessGoal)
+    } else {
+        bmi = null
+        bmr = null
+        tdee = null
+        computedCalories = null
+        macros = null
+    }
     val assessment = remember(
         experienceBand, currentRole, targetRole, years, dsaConf, sdConf,
     ) {
@@ -565,23 +582,31 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit) {
                             }
                             GlassSurface(level = GlassLevel.Level1) {
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(
-                                        "BMI: ${String.format("%.1f", bmi)} (${NutritionCalc.bmiCategory(bmi)})",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                    )
-                                    Text("BMR: ${bmr.toInt()} kcal", style = MaterialTheme.typography.bodyMedium)
-                                    Text("TDEE: ${tdee.toInt()} kcal", style = MaterialTheme.typography.bodyMedium)
-                                    Text(
-                                        "Goal calories: $computedCalories kcal",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = SystemPrimary,
-                                    )
-                                    Text(
-                                        "Macros — P: ${macros.proteinG}g · C: ${macros.carbsG}g · F: ${macros.fatG}g",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = colors.onSurfaceVariant,
-                                    )
+                                    if (bmi != null && bmr != null && tdee != null && computedCalories != null && macros != null) {
+                                        Text(
+                                            "BMI: ${String.format("%.1f", bmi)} (${NutritionCalc.bmiCategory(bmi)})",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                        )
+                                        Text("BMR: ${bmr.toInt()} kcal", style = MaterialTheme.typography.bodyMedium)
+                                        Text("TDEE: ${tdee.toInt()} kcal", style = MaterialTheme.typography.bodyMedium)
+                                        Text(
+                                            "Goal calories: $computedCalories kcal",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = SystemPrimary,
+                                        )
+                                        Text(
+                                            "Macros — P: ${macros.proteinG}g · C: ${macros.carbsG}g · F: ${macros.fatG}g",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = colors.onSurfaceVariant,
+                                        )
+                                    } else {
+                                        Text(
+                                            "Enter age, height, weight, and gender to preview nutrition targets.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = colors.onSurfaceVariant,
+                                        )
+                                    }
                                 }
                             }
                             OutlinedTextField(
@@ -596,7 +621,9 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit) {
                                 value = calorieOverride,
                                 onValueChange = { calorieOverride = it },
                                 label = { Text("Calorie override (optional)") },
-                                placeholder = { Text(computedCalories.toString()) },
+                                placeholder = {
+                                    Text(computedCalories?.toString() ?: "Enter your daily target")
+                                },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 colors = fieldColors,
@@ -635,7 +662,7 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit) {
                                     }
                                     if (enabledModules.diet) {
                                         Text(
-                                            "• Diet — $computedCalories kcal target",
+                                            "• Diet — ${computedCalories?.let { "$it kcal target" } ?: "nutrition setup"}",
                                             style = MaterialTheme.typography.bodySmall,
                                         )
                                     }
@@ -652,7 +679,7 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit) {
             ) {
                 if (stepIndex > 0) {
                     GhostTextButton(
-                        label = "ABORT",
+                        label = "Back",
                         onClick = { stepIndex -= 1 },
                         modifier = Modifier.weight(1f),
                     )
@@ -663,73 +690,85 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit) {
                         if (stepIndex < steps.lastIndex) {
                             stepIndex += 1
                         } else {
-                            scope.launch {
-                                val scheduleDays = when {
-                                    enabledModules.workout && createOwnRoutine ->
-                                        preferredWorkoutDays.sortedBy { isoByWeekdayLabel[it] ?: 99 }
-                                    enabledModules.workout && !createOwnRoutine ->
-                                        scheduleDaysFromSplitDayMap(splitDayMap)
-                                    else -> emptyList()
-                                }
-                                container.onboarding.completeOnboarding(
-                                    OnboardingInput(
-                                        name = name,
-                                        modules = enabledModules,
-                                        priorities = buildList {
-                                            if (enabledModules.career) add("career")
-                                            if (enabledModules.workout) add("fitness")
-                                            if (enabledModules.diet) add("health")
-                                        },
-                                        scheduleDays = scheduleDays,
-                                        careerIntent = if (enabledModules.career) careerIntent else "",
-                                        experienceBand = if (enabledModules.career) experienceBand else "",
-                                        currentRole = if (enabledModules.career) currentRole else "",
-                                        targetRole = if (enabledModules.career) targetRole else "",
-                                        yearsExperience = if (enabledModules.career) years else 0.0,
-                                        techStack = if (enabledModules.career) techStack else "",
-                                        targetCompanies = if (enabledModules.career) targetCompanies else "",
-                                        targetComp = if (enabledModules.career) targetComp else "",
-                                        targetTimeline = if (enabledModules.career) targetTimeline else "",
-                                        dsaConfidence = if (enabledModules.career) dsaConf else 50,
-                                        sdConfidence = if (enabledModules.career) sdConf else 50,
-                                        age = if (enabledModules.workout || enabledModules.diet) ageInt else 25,
-                                        sex = if (enabledModules.workout || enabledModules.diet) sex else "male",
-                                        heightCm = if (enabledModules.workout || enabledModules.diet) height else 170.0,
-                                        weightKg = if (enabledModules.workout || enabledModules.diet) weight else 70.0,
-                                        trainingExperience = if (enabledModules.workout) trainingExperience else "beginner",
-                                        fitnessGoal = if (enabledModules.workout || enabledModules.diet) fitnessGoal else "maintenance",
-                                        trainingDays = if (enabledModules.workout) {
-                                            if (createOwnRoutine) {
-                                                preferredWorkoutDays.size.coerceAtLeast(1)
-                                            } else {
-                                                WorkoutCatalog.findSplit(workoutSplitId)?.daysPerWeek ?: 3
-                                            }
-                                        } else {
-                                            3
-                                        },
-                                        workoutSplitId = if (enabledModules.workout && !createOwnRoutine) workoutSplitId else "",
-                                        workoutDayMapCsv = if (enabledModules.workout && !createOwnRoutine) {
-                                            WorkoutSplitLogic.encodeDayMap(splitDayMap)
-                                        } else {
-                                            ""
-                                        },
-                                        createOwnRoutine = enabledModules.workout && createOwnRoutine,
-                                        customDayNames = if (enabledModules.workout && createOwnRoutine) customDayNames else emptyMap(),
-                                        preferredWorkoutDays = if (enabledModules.workout && createOwnRoutine) {
-                                            preferredWorkoutDays.sortedBy { isoByWeekdayLabel[it] ?: 99 }
-                                        } else {
-                                            emptyList()
-                                        },
-                                        activityLevel = if (enabledModules.workout || enabledModules.diet) activityLevel else "moderate",
-                                        targetWeightKg = if (enabledModules.diet) targetWeightKg.toDoubleOrNull() else null,
-                                        calorieOverride = if (enabledModules.diet) calorieOverride.toIntOrNull() else null,
-                                    ),
-                                )
-                                onDone()
+                            if (submitting) return@SystemActionButton
+                            val needBody = enabledModules.workout || enabledModules.diet
+                            val parsedAge = age.toIntOrNull()
+                            val parsedHeight = heightCm.toDoubleOrNull()
+                            val parsedWeight = weightKg.toDoubleOrNull()
+                            if (needBody) {
+                                if (parsedAge == null || parsedAge <= 0) return@SystemActionButton
+                                if (sex != "male" && sex != "female") return@SystemActionButton
+                                if (parsedHeight == null || parsedHeight <= 0.0) return@SystemActionButton
+                                if (parsedWeight == null || parsedWeight <= 0.0) return@SystemActionButton
                             }
+                            val bodyAge = parsedAge ?: 25
+                            val bodyHeight = parsedHeight ?: 170.0
+                            val bodyWeight = parsedWeight ?: 70.0
+                            val scheduleDays = when {
+                                enabledModules.workout && createOwnRoutine ->
+                                    preferredWorkoutDays.sortedBy { isoByWeekdayLabel[it] ?: 99 }
+                                enabledModules.workout && !createOwnRoutine ->
+                                    scheduleDaysFromSplitDayMap(splitDayMap)
+                                else -> emptyList()
+                            }
+                            submitting = true
+                            onFinished(
+                                OnboardingInput(
+                                    name = name,
+                                    modules = enabledModules,
+                                    priorities = buildList {
+                                        if (enabledModules.career) add("career")
+                                        if (enabledModules.workout) add("fitness")
+                                        if (enabledModules.diet) add("health")
+                                    },
+                                    scheduleDays = scheduleDays,
+                                    careerIntent = if (enabledModules.career) careerIntent else "",
+                                    experienceBand = if (enabledModules.career) experienceBand else "",
+                                    currentRole = if (enabledModules.career) currentRole else "",
+                                    targetRole = if (enabledModules.career) targetRole else "",
+                                    yearsExperience = if (enabledModules.career) years else 0.0,
+                                    techStack = if (enabledModules.career) techStack else "",
+                                    targetCompanies = if (enabledModules.career) targetCompanies else "",
+                                    targetComp = if (enabledModules.career) targetComp else "",
+                                    targetTimeline = if (enabledModules.career) targetTimeline else "",
+                                    dsaConfidence = if (enabledModules.career) dsaConf else 50,
+                                    sdConfidence = if (enabledModules.career) sdConf else 50,
+                                    age = if (needBody) bodyAge else 25,
+                                    sex = if (needBody) sex else "male",
+                                    heightCm = if (needBody) bodyHeight else 170.0,
+                                    weightKg = if (needBody) bodyWeight else 70.0,
+                                    trainingExperience = if (enabledModules.workout) trainingExperience else "beginner",
+                                    fitnessGoal = if (enabledModules.workout || enabledModules.diet) fitnessGoal else "maintenance",
+                                    trainingDays = if (enabledModules.workout) {
+                                        if (createOwnRoutine) {
+                                            preferredWorkoutDays.size.coerceAtLeast(1)
+                                        } else {
+                                            WorkoutCatalog.findSplit(workoutSplitId)?.daysPerWeek ?: 3
+                                        }
+                                    } else {
+                                        3
+                                    },
+                                    workoutSplitId = if (enabledModules.workout && !createOwnRoutine) workoutSplitId else "",
+                                    workoutDayMapCsv = if (enabledModules.workout && !createOwnRoutine) {
+                                        WorkoutSplitLogic.encodeDayMap(splitDayMap)
+                                    } else {
+                                        ""
+                                    },
+                                    createOwnRoutine = enabledModules.workout && createOwnRoutine,
+                                    customDayNames = if (enabledModules.workout && createOwnRoutine) customDayNames else emptyMap(),
+                                    preferredWorkoutDays = if (enabledModules.workout && createOwnRoutine) {
+                                        preferredWorkoutDays.sortedBy { isoByWeekdayLabel[it] ?: 99 }
+                                    } else {
+                                        emptyList()
+                                    },
+                                    activityLevel = if (enabledModules.workout || enabledModules.diet) activityLevel else "moderate",
+                                    targetWeightKg = if (enabledModules.diet) targetWeightKg.toDoubleOrNull() else null,
+                                    calorieOverride = if (enabledModules.diet) calorieOverride.toIntOrNull() else null,
+                                ),
+                            )
                         }
                     },
-                    enabled = isOnboardingStepValid(
+                    enabled = !submitting && isOnboardingStepValid(
                         step = currentStep,
                         name = name,
                         enabledModules = enabledModules,
@@ -738,6 +777,8 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit) {
                         workoutSplitId = workoutSplitId,
                         splitDayMap = splitDayMap,
                         preferredWorkoutDays = preferredWorkoutDays,
+                        age = age,
+                        sex = sex,
                         heightCm = heightCm,
                         weightKg = weightKg,
                     ),
@@ -779,6 +820,7 @@ private fun ModuleGoalCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BodyFields(
     age: String,
@@ -801,29 +843,65 @@ private fun BodyFields(
     fieldColors: androidx.compose.material3.TextFieldColors,
     showTrainingExperience: Boolean = true,
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    var genderExpanded by remember { mutableStateOf(false) }
+    val genderLabel = when (sex) {
+        "male" -> "Male"
+        "female" -> "Female"
+        else -> ""
+    }
+    OutlinedTextField(
+        value = age,
+        onValueChange = onAgeChange,
+        label = { Text("Age") },
+        placeholder = { Text("Enter your age") },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        colors = fieldColors,
+    )
+    ExposedDropdownMenuBox(
+        expanded = genderExpanded,
+        onExpandedChange = { genderExpanded = it },
+    ) {
         OutlinedTextField(
-            value = age,
-            onValueChange = onAgeChange,
-            label = { Text("Age") },
-            modifier = Modifier.weight(1f),
-            singleLine = true,
+            value = genderLabel,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Gender") },
+            placeholder = { Text("Select gender") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+            trailingIcon = {
+                ExposedDropdownMenuDefaults.TrailingIcon(expanded = genderExpanded)
+            },
             colors = fieldColors,
         )
-        OutlinedTextField(
-            value = sex,
-            onValueChange = onSexChange,
-            label = { Text("Sex") },
-            modifier = Modifier.weight(1f),
-            singleLine = true,
-            colors = fieldColors,
-        )
+        ExposedDropdownMenu(
+            expanded = genderExpanded,
+            onDismissRequest = { genderExpanded = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("Male") },
+                onClick = {
+                    onSexChange("male")
+                    genderExpanded = false
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Female") },
+                onClick = {
+                    onSexChange("female")
+                    genderExpanded = false
+                },
+            )
+        }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(
             value = heightCm,
             onValueChange = onHeightChange,
             label = { Text("Height cm") },
+            placeholder = { Text("Enter your height") },
             modifier = Modifier.weight(1f),
             singleLine = true,
             colors = fieldColors,
@@ -832,6 +910,7 @@ private fun BodyFields(
             value = weightKg,
             onValueChange = onWeightChange,
             label = { Text("Weight kg") },
+            placeholder = { Text("Enter your weight") },
             modifier = Modifier.weight(1f),
             singleLine = true,
             colors = fieldColors,
@@ -871,6 +950,15 @@ private fun ChipRow(
     }
 }
 
+internal fun isBodyProfileValid(age: String, sex: String, heightCm: String, weightKg: String): Boolean {
+    if (sex != "male" && sex != "female") return false
+    return EntryValidation.firstError(
+        EntryValidation.requirePositiveInt(age, "age"),
+        EntryValidation.requirePositiveFloat(heightCm, "height"),
+        EntryValidation.requirePositiveFloat(weightKg, "weight"),
+    ) == null
+}
+
 internal fun isOnboardingStepValid(
     step: OnboardingStep,
     name: String,
@@ -880,19 +968,22 @@ internal fun isOnboardingStepValid(
     workoutSplitId: String,
     splitDayMap: Map<Int, Int>,
     preferredWorkoutDays: Set<String>,
+    age: String,
+    sex: String,
     heightCm: String,
     weightKg: String,
 ): Boolean = when (step) {
     OnboardingStep.NAME -> name.isNotBlank()
     OnboardingStep.GOALS -> enabledModules.anyEnabled
     OnboardingStep.CAREER_INTENT -> careerIntent.isNotBlank()
+    OnboardingStep.WORKOUT_BODY -> isBodyProfileValid(age, sex, heightCm, weightKg)
     OnboardingStep.WORKOUT_PLAN -> if (createOwnRoutine) {
         preferredWorkoutDays.isNotEmpty()
     } else {
         isSplitDayMapValid(workoutSplitId, splitDayMap)
     }
     OnboardingStep.DIET_NUTRITION -> if (needsBodyFieldsInDietStep(enabledModules)) {
-        heightCm.toDoubleOrNull() != null && weightKg.toDoubleOrNull() != null
+        isBodyProfileValid(age, sex, heightCm, weightKg)
     } else {
         true
     }
