@@ -143,6 +143,9 @@ fun AnalyticsScreen(
                                 value = formatCompletionRate(r.completionRate),
                             )
                             MetricLine(label = "XP earned", value = "${r.xpEarned}")
+                            r.careerXp?.let { MetricLine(label = "Career XP", value = "$it") }
+                            r.workoutXp?.let { MetricLine(label = "Fitness XP", value = "$it") }
+                            r.dietXp?.let { MetricLine(label = "Nutrition XP", value = "$it") }
                             r.workoutCountWeek?.let { count ->
                                 MetricLine(label = "Workouts", value = "$count sessions")
                             }
@@ -187,23 +190,18 @@ fun AnalyticsScreen(
                     GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
                         Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                             SystemSectionHeader(tag = "WEEK OVER WEEK")
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                            ) {
-                                ScoreBlock(
-                                    label = "This week",
-                                    score = snap.current.score,
-                                    accent = SystemSuccess,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                ScoreBlock(
-                                    label = "Last week",
-                                    score = snap.previous.score,
-                                    accent = colors.onSurfaceVariant,
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
+                            ScoreBlock(
+                                label = "This week",
+                                score = snap.current.score,
+                                accent = SystemSuccess,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            ScoreBlock(
+                                label = "Last week",
+                                score = snap.previous.score,
+                                accent = colors.onSurfaceVariant,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                             val pct = snap.improvementPercent
                             if (pct != null) {
                                 Text(

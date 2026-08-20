@@ -1,7 +1,7 @@
 # Solo Levelling — Application Documentation
 
 > Generated from repository analysis of the **actual implementation**. Prefer this document and the running code over older PRD wording when they disagree.  
-> Related: [SYSTEM_DESIGN.md](./SYSTEM_DESIGN.md) · [JSON_DATA_REFERENCE.md](./JSON_DATA_REFERENCE.md) · [../README.md](../README.md) · in-package specs under `app/src/main/java/com/example/solo_levelling/docs/`
+> Related: [SYSTEM_DESIGN.md](./SYSTEM_DESIGN.md) · [JSON_DATA_REFERENCE.md](./JSON_DATA_REFERENCE.md) · [ARCHITECTURE_ANALYSIS.md](./ARCHITECTURE_ANALYSIS.md) · [../README.md](../README.md) · in-package specs under `app/src/main/java/com/example/solo_levelling/docs/`
 
 **Legend:** Statements without a label are **verified from code**. Items marked **(inference)** are reasonable conclusions. Items marked **Not determined from the repository** could not be confirmed.
 

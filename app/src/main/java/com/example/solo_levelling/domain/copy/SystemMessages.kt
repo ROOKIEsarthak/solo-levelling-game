@@ -1,5 +1,7 @@
 package com.example.solo_levelling.domain.copy
 
+import com.example.solo_levelling.domain.logic.DayRelation
+
 /**
  * Mentor-tone system copy. Screens pick from categories — do not hardcode motivational lines in UI.
  */
@@ -218,6 +220,9 @@ object SystemMessages {
         return "+$xp XP\n${forContext(ctx, seed)}"
     }
 
+    fun milestoneCompletedFeedback(xp: Int, seed: Int = xp): String =
+        "+$xp XP\nMilestone complete.\n${pick(Category.Milestone, seed)}"
+
     fun missionComplete(xp: Int): String = questCompletedFeedback(xp)
 
     fun workoutComplete(xp: Int): String =
@@ -225,6 +230,51 @@ object SystemMessages {
 
     fun nutritionLogged(xp: Int): String =
         "+$xp XP\n${pick(Category.Diet, xp)}"
+
+    const val MEAL_TRACKING_COMPLETE_NO_TARGETS =
+        "Your meal tracking is progressing. Complete your daily meal target."
+    const val MEAL_TRACKING_PROGRESS_NO_TARGETS =
+        "Complete your nutrition profile to receive personalized macro guidance."
+    const val MEAL_TRACKING_COMPLETE_PROFILE_HINT =
+        "Complete your nutrition profile to receive personalized macro guidance."
+
+    fun proteinBelowTarget(): String =
+        "Protein is still below today's target. Consider prioritizing a protein-rich next meal."
+    fun proteinBelowTargetTomorrow(): String =
+        "Protein was below target today. Consider prioritizing it tomorrow."
+    fun carbsBelowTarget(): String =
+        "Carbohydrates are still below today's target. Consider adding a balanced carbohydrate source."
+    fun fatHighToday(): String =
+        "Fat intake is already relatively high today. Consider a lower-fat option next."
+    fun caloriesNearLimit(): String =
+        "You're close to today's calorie target. Consider keeping the next meal lighter."
+    fun caloriesAboveTargetFatLoss(): String =
+        "Today's intake is currently above your calorie target. If this pattern continues consistently, it may make fat-loss progress slower."
+    fun nutritionBalanced(): String =
+        "Your nutrition is tracking well today."
+    fun nutritionCloseToTargetToday(): String =
+        "You stayed close to your calorie target today."
+    fun mealTrackingCompleteToday(): String =
+        "Today's tracking is complete."
+    fun proteinRecoveryAfterWorkout(): String =
+        "Workout completed today. Protein target remains important for recovery."
+
+    const val JOURNAL_SAVED_FEEDBACK = "Journal saved · +20 XP"
+
+    const val REVERSE_COMPLETION_TITLE = "Reverse completion?"
+    const val REVERSE_COMPLETION_EXPLANATION = "This quest is already recorded as completed."
+    const val REVERSE_COMPLETION_CONSEQUENCE = "Reversing it will remove the progress from this completion."
+    const val REVERSE_COMPLETION_KEEP = "Keep completed"
+    const val REVERSE_COMPLETION_CONFIRM = "Reverse completion"
+    const val COMPLETION_REVERSED = "Completion reversed."
+    const val COMPLETION_REVERSE_FAILED = "Could not reverse completion. The undo window may have expired."
+
+    const val DELETE_ENTRY_TITLE = "Delete this entry?"
+    const val DELETE_ENTRY_PROGRESS_EXPLANATION = "This record contributes to your progress."
+    const val DELETE_ENTRY_PROGRESS_CONSEQUENCE = "Deleting it will remove the progress associated with this activity."
+    const val DELETE_ENTRY_NO_PROGRESS_EXPLANATION = "This action cannot be undone."
+    const val DELETE_ENTRY_KEEP = "Keep entry"
+    const val DELETE_ENTRY_CONFIRM = "Delete"
 
     fun streakMilestone(days: Int): String? = when (days) {
         7 -> "7 days.\n${forContext(MotivationContext.StreakMilestone, 7)}"
@@ -238,4 +288,18 @@ object SystemMessages {
     const val FALL_QUESTION = "Why do we fall, Bruce?"
     const val FALL_ANSWER = "So that we can learn to pick ourselves up."
     const val FALL_ATTRIBUTION = "— Alfred, Batman Begins"
+
+    const val DATE_TODAY_ACTION = "Log what you actually completed today."
+    const val DATE_PAST_REVIEW =
+        "This day is for review. Progress is based on what you complete today."
+    const val DATE_FUTURE_PLAN =
+        "Upcoming days can be planned through your weekly split. Log the work when the day arrives."
+    const val DATE_QUEST_WRONG_DAY =
+        "This quest belongs to an earlier day. Review it in History instead of changing today's progress."
+
+    fun dateGuidance(relation: DayRelation): String = when (relation) {
+        DayRelation.Today -> DATE_TODAY_ACTION
+        DayRelation.Past -> DATE_PAST_REVIEW
+        DayRelation.Future -> DATE_FUTURE_PLAN
+    }
 }

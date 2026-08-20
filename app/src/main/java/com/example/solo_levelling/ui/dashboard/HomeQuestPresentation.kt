@@ -28,7 +28,7 @@ object HomeQuestPresentation {
     private const val MANY_INCOMPLETE_THRESHOLD = 5
 
     fun isHomeQuestType(type: String): Boolean =
-        type == QuestType.DAILY.name || type == QuestType.RECOVERY.name
+        type == QuestType.DAILY.name
 
     fun scopeForHome(
         quests: List<QuestInstanceEntity>,
@@ -40,12 +40,13 @@ object HomeQuestPresentation {
             .asSequence()
             .filter { isHomeQuestType(it.type) }
             .filter { it.status != QuestStatus.MISSED.name }
-            .filter { allowsTemplate(tagsByTemplateId[it.templateId].orEmpty()) }
+            .filter { it.templateId in tagsByTemplateId }
+            .filter { allowsTemplate(tagsByTemplateId.getValue(it.templateId)) }
             .map { instance ->
                 HomeQuestItem(
                     instance = instance,
                     templateKey = keysByTemplateId[instance.templateId].orEmpty(),
-                    priorityTags = tagsByTemplateId[instance.templateId].orEmpty(),
+                    priorityTags = tagsByTemplateId.getValue(instance.templateId),
                 )
             }
             .toList()

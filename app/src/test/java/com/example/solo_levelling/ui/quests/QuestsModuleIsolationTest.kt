@@ -154,4 +154,47 @@ class QuestsModuleIsolationTest {
         )
         assertEquals(listOf(3L, 4L), visible.map { it.instance.id })
     }
+
+    @Test
+    fun n_unknownTemplate_excludedFromListItems() {
+        val orphan = QuestInstanceEntity(
+            id = 99,
+            templateId = 99,
+            scheduledDate = "2026-08-18",
+            title = "Complete workout",
+            type = "DAILY",
+            baseXp = 50,
+            attributeRewardsJson = "{}",
+        )
+        val items = questListItemsFromTemplates(
+            instances = listOf(orphan),
+            tagsById = emptyMap(),
+            keysById = emptyMap(),
+        )
+        assertTrue(items.isEmpty())
+    }
+
+    @Test
+    fun p_blankTags_keptAsKnownGlobal() {
+        val instance = item(4, "", title = "90 min deep work").instance
+        val items = questListItemsFromTemplates(
+            instances = listOf(instance),
+            tagsById = mapOf(4L to ""),
+            keysById = mapOf(4L to "deep_work"),
+        )
+        assertEquals(1, items.size)
+        assertEquals("", items.single().priorityTags)
+        assertEquals("deep_work", items.single().templateKey)
+    }
+
+    @Test
+    fun n_bossQuests_missingKeyExcluded() {
+        val quests = listOf(
+            BossQuestEntity(id = 1, bossId = 9, templateKey = "orphan"),
+            BossQuestEntity(id = 2, bossId = 9, templateKey = "journal"),
+        )
+        val tags = mapOf("journal" to "")
+        val visible = bossQuestsForModules(quests, tags, careerOnly)
+        assertEquals(listOf("journal"), visible.map { it.templateKey })
+    }
 }

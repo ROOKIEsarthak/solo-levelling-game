@@ -3,6 +3,8 @@ package com.example.solo_levelling.ui.dashboard
 import com.example.solo_levelling.data.db.entity.QuestInstanceEntity
 import com.example.solo_levelling.domain.model.QuestStatus
 import com.example.solo_levelling.domain.model.QuestType
+import com.example.solo_levelling.domain.service.EnabledModules
+import com.example.solo_levelling.domain.service.ModuleScope
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -28,7 +30,7 @@ class HomeQuestPresentationTest {
     )
 
     @Test
-    fun p_scope_includesDailyAndRecovery_excludesWeekly() {
+    fun p_scope_includesDaily_excludesWeeklyRecoveryMilestone() {
         val quests = listOf(
             quest(1, type = QuestType.DAILY.name),
             quest(2, type = QuestType.RECOVERY.name),
@@ -37,11 +39,11 @@ class HomeQuestPresentationTest {
         )
         val scoped = HomeQuestPresentation.scopeForHome(
             quests = quests,
-            tagsByTemplateId = emptyMap(),
+            tagsByTemplateId = mapOf(1L to "", 2L to "", 3L to "", 4L to ""),
             keysByTemplateId = emptyMap(),
             allowsTemplate = { true },
         )
-        assertEquals(listOf(1L, 2L), scoped.map { it.instance.id })
+        assertEquals(listOf(1L), scoped.map { it.instance.id })
     }
 
     @Test
@@ -67,7 +69,7 @@ class HomeQuestPresentationTest {
         )
         val scoped = HomeQuestPresentation.scopeForHome(
             quests = quests,
-            tagsByTemplateId = emptyMap(),
+            tagsByTemplateId = mapOf(1L to "", 2L to ""),
             keysByTemplateId = emptyMap(),
             allowsTemplate = { true },
         )
@@ -156,5 +158,54 @@ class HomeQuestPresentationTest {
         )
         val sorted = HomeQuestPresentation.sort(items).map { it.instance.id }
         assertEquals(listOf(2L, 1L), sorted)
+    }
+
+    @Test
+    fun n_scope_excludesMissingTemplateId() {
+        val quests = listOf(
+            quest(1, templateId = 10, title = "Complete workout"),
+            quest(2, templateId = 20, title = "90 min deep work"),
+        )
+        val scoped = HomeQuestPresentation.scopeForHome(
+            quests = quests,
+            tagsByTemplateId = mapOf(20L to ""),
+            keysByTemplateId = mapOf(20L to "deep_work"),
+            allowsTemplate = { true },
+        )
+        assertEquals(listOf(2L), scoped.map { it.instance.id })
+        assertEquals("deep_work", scoped.single().templateKey)
+    }
+
+    @Test
+    fun p_scope_blankTagsRemainGlobal() {
+        val quests = listOf(quest(1, templateId = 5, title = "90 min deep work"))
+        val scoped = HomeQuestPresentation.scopeForHome(
+            quests = quests,
+            tagsByTemplateId = mapOf(5L to ""),
+            keysByTemplateId = mapOf(5L to "deep_work"),
+            allowsTemplate = { ModuleScope.allowsQuestTemplate(it, EnabledModules(career = true)) },
+        )
+        assertEquals(1, scoped.size)
+    }
+
+    @Test
+    fun n_scope_careerOnly_hidesWorkout() {
+        val quests = listOf(
+            quest(1, templateId = 10, title = "Complete workout"),
+            quest(2, templateId = 20, title = "Hit step target"),
+            quest(3, templateId = 30, title = "90 min deep work"),
+        )
+        val tags = mapOf(
+            10L to "module_workout",
+            20L to "module_workout",
+            30L to "",
+        )
+        val scoped = HomeQuestPresentation.scopeForHome(
+            quests = quests,
+            tagsByTemplateId = tags,
+            keysByTemplateId = mapOf(10L to "workout_daily", 20L to "steps", 30L to "deep_work"),
+            allowsTemplate = { ModuleScope.allowsQuestTemplate(it, EnabledModules(career = true)) },
+        )
+        assertEquals(listOf(3L), scoped.map { it.instance.id })
     }
 }

@@ -2,9 +2,16 @@ package com.example.solo_levelling.core.config
 
 object SystemDefaults {
     const val PLAYER_ID = 1L
+    const val DEFAULT_REQUIRED_MEALS_PER_DAY = 3
     const val DAILY_XP_CAP = 500
-    const val WEEKLY_RECOVERY_LIMIT = 3
     const val QUEST_UNDO_MINUTES = 15
+    const val UNDO_XP_PENALTY_PERCENT = 0
+    const val UNDO_XP_PENALTY_MIN = 1
+
+    fun undoPenaltyXp(originalAmount: Int, percent: Int = UNDO_XP_PENALTY_PERCENT): Int {
+        if (percent <= 0 || originalAmount <= 0) return 0
+        return maxOf(UNDO_XP_PENALTY_MIN, originalAmount * percent / 100)
+    }
     const val STREAK_GRACE_DAYS = 0
     const val LEVEL_BASE = 100.0
     const val LEVEL_EXPONENT = 1.35

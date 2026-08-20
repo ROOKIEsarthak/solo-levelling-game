@@ -19,7 +19,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -27,7 +30,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.core.config.SystemDefaults
 import com.example.solo_levelling.domain.copy.SystemMessages
+import androidx.compose.material3.LinearProgressIndicator
+import com.example.solo_levelling.domain.logic.MealSlotStatus
 import com.example.solo_levelling.domain.model.QuestStatus
+import com.example.solo_levelling.ui.fitness.mealProgressHeaderLabel
+import com.example.solo_levelling.ui.fitness.mealSlotIndicator
 import com.example.solo_levelling.domain.service.AnalyticsService
 import com.example.solo_levelling.domain.service.ModuleScope
 import com.example.solo_levelling.domain.service.QuestCompletionService
@@ -38,6 +45,7 @@ import com.example.solo_levelling.ui.components.GlassLevel
 import com.example.solo_levelling.ui.components.GlassSurface
 import com.example.solo_levelling.ui.components.MissionQuestCard
 import com.example.solo_levelling.ui.components.PlayerHeader
+import com.example.solo_levelling.ui.components.SystemConfirmDialog
 import com.example.solo_levelling.ui.components.SystemIdleEmpty
 import com.example.solo_levelling.ui.components.SystemSectionHeader
 import com.example.solo_levelling.ui.components.TodayProgressStrip
@@ -50,9 +58,6 @@ import com.example.solo_levelling.ui.theme.JetBrainsMono
 import com.example.solo_levelling.ui.theme.Spacing
 import com.example.solo_levelling.ui.theme.SystemPrimary
 import com.example.solo_levelling.ui.theme.SystemTertiary
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -65,8 +70,8 @@ fun DashboardScreen(
     onOpenWorkout: () -> Unit = {},
     onOpenNutrition: () -> Unit = {},
     onOpenMissions: () -> Unit = {},
-    onOpenCareer: () -> Unit = {},
-    onOpenModules: () -> Unit = {},
+    onOpenCareer: (section: String) -> Unit = {},
+    onOpenModules: (section: String) -> Unit = {},
     onOpenCharacter: () -> Unit = {},
     onMessage: (String) -> Unit = {},
 ) {
@@ -78,11 +83,14 @@ fun DashboardScreen(
     val xpLast7Days by vm.xpLast7Days.collectAsStateWithLifecycle()
     val workoutToday by vm.workoutToday.collectAsStateWithLifecycle()
     val nutritionToday by vm.nutritionToday.collectAsStateWithLifecycle()
+    val mealProgress by vm.mealProgress.collectAsStateWithLifecycle()
     val calorieTarget by vm.calorieTarget.collectAsStateWithLifecycle()
     val proteinTarget by vm.proteinTarget.collectAsStateWithLifecycle()
     val suggestions by vm.suggestions.collectAsStateWithLifecycle()
     val modules by vm.enabledModules.collectAsStateWithLifecycle()
+    val clockUi by vm.clockUi.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    var pendingUndoId by remember { mutableStateOf<Long?>(null) }
 
     val p = profile
     val xpIntoLevel = if (p == null) 0 else p.totalXp - SystemDefaults.totalXpForLevel(p.level)
@@ -90,10 +98,8 @@ fun DashboardScreen(
     val completed = homeSections.completedCount
     val total = homeSections.totalCount
     val name = p?.name ?: "Hunter"
-    val greeting = greetingForHour(java.time.LocalTime.now().hour)
-    val dateLabel = LocalDate.now().format(
-        DateTimeFormatter.ofPattern("EEEE · MMMM d", Locale.getDefault()),
-    )
+    val greeting = greetingForHour(clockUi.hour)
+    val dateLabel = clockUi.dateLabel
     val actionableAttrs = attributes.filter {
         AnalyticsService.isAttributeActionable(it.code, modules)
     }
@@ -115,6 +121,8 @@ fun DashboardScreen(
             priorityTags = item.priorityTags,
             verificationType = item.instance.verificationType,
             status = item.instance.status,
+            templateKey = item.templateKey,
+            questType = item.instance.type,
         )
         QuestDestinationResolver.dispatch(
             action = action,
@@ -127,7 +135,7 @@ fun DashboardScreen(
                 if (status == QuestStatus.AVAILABLE.name || status == QuestStatus.IN_PROGRESS.name) {
                     scope.launch {
                         val result = withContext(Dispatchers.IO) {
-                            container.questCompletion.complete(item.instance.id)
+                            vm.complete(item.instance.id)
                         }
                         onMessage(questCompletionUserMessage(result))
                     }
@@ -137,12 +145,30 @@ fun DashboardScreen(
     }
 
     fun undoQuest(item: HomeQuestItem) {
-        scope.launch {
-            val ok = withContext(Dispatchers.IO) {
-                container.questCompletion.undo(item.instance.id)
-            }
-            onMessage(if (ok) "Quest undone" else "Could not undo quest")
-        }
+        pendingUndoId = item.instance.id
+    }
+
+    pendingUndoId?.let { undoId ->
+        SystemConfirmDialog(
+            title = SystemMessages.REVERSE_COMPLETION_TITLE,
+            explanation = SystemMessages.REVERSE_COMPLETION_EXPLANATION,
+            consequence = SystemMessages.REVERSE_COMPLETION_CONSEQUENCE,
+            confirmLabel = SystemMessages.REVERSE_COMPLETION_CONFIRM,
+            cancelLabel = SystemMessages.REVERSE_COMPLETION_KEEP,
+            onDismiss = { pendingUndoId = null },
+            onConfirm = {
+                pendingUndoId = null
+                scope.launch {
+                    val ok = withContext(Dispatchers.IO) {
+                        vm.undo(undoId)
+                    }
+                    onMessage(
+                        if (ok) SystemMessages.COMPLETION_REVERSED
+                        else SystemMessages.COMPLETION_REVERSE_FAILED,
+                    )
+                }
+            },
+        )
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -343,12 +369,56 @@ fun DashboardScreen(
                     GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
                         Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                             SystemSectionHeader(tag = "Quick actions")
+                            if (modules.diet) {
+                                Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                                    Text(
+                                        mealProgressHeaderLabel(),
+                                        fontFamily = JetBrainsMono,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Text(
+                                        mealProgress.progressLabel,
+                                        fontFamily = JetBrainsMono,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = SystemPrimary,
+                                    )
+                                    val progressFraction = if (mealProgress.requiredCount <= 0) {
+                                        0f
+                                    } else {
+                                        (mealProgress.loggedCount.toFloat() / mealProgress.requiredCount)
+                                            .coerceIn(0f, 1f)
+                                    }
+                                    LinearProgressIndicator(
+                                        progress = { progressFraction },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        color = SystemPrimary,
+                                        trackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f),
+                                    )
+                                    mealProgress.slotStatuses
+                                        .filter { it.name != "Snack" }
+                                        .forEach { slot -> DashboardMealSlotRow(slot) }
+                                    Text(
+                                        mealProgress.guidanceLine,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    if (calorieTarget > 0) {
+                                        Text(
+                                            "Nutrition · ${nutritionToday?.calories ?: 0} / $calorieTarget kcal",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontFamily = JetBrainsMono,
+                                            color = SystemTertiary,
+                                        )
+                                    }
+                                }
+                            }
                             Row(
                                 Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
                             ) {
                                 if (modules.career) {
-                                    GhostTextButton(label = "Career", onClick = onOpenCareer)
+                                    GhostTextButton(label = "Career", onClick = { onOpenCareer("") })
                                 }
                                 if (modules.workout) {
                                     GhostTextButton(
@@ -364,14 +434,6 @@ fun DashboardScreen(
                                     )
                                 }
                             }
-                            if (modules.diet && (calorieTarget > 0 || proteinTarget > 0)) {
-                                Text(
-                                    "Nutrition · ${nutritionToday?.calories ?: 0} / $calorieTarget kcal",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontFamily = JetBrainsMono,
-                                    color = SystemTertiary,
-                                )
-                            }
                         }
                     }
                 }
@@ -379,6 +441,27 @@ fun DashboardScreen(
 
             item { Spacer(Modifier.height(Spacing.md)) }
         }
+    }
+}
+
+@Composable
+private fun DashboardMealSlotRow(slot: MealSlotStatus) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            slot.name,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            mealSlotIndicator(slot.logged),
+            fontFamily = JetBrainsMono,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (slot.logged) SystemPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -394,6 +477,8 @@ private fun HomeQuestCardRow(
         priorityTags = item.priorityTags,
         verificationType = q.verificationType,
         status = q.status,
+        templateKey = item.templateKey,
+        questType = q.type,
     )
     MissionQuestCard(
         type = q.type,
@@ -407,13 +492,16 @@ private fun HomeQuestCardRow(
         primaryLabel = action.label,
         deemphasized = completed,
         onPrimary = onPrimary,
-        onUndo = if (completed) onUndo else null,
+        completedAtEpochMs = q.completedAtEpochMs,
+        onUndo = if (completed && q.type != "MILESTONE") onUndo else null,
     )
 }
 
 internal fun questCompletionUserMessage(result: QuestCompletionService.Result): String = when (result) {
     is QuestCompletionService.Result.Completed ->
         SystemMessages.questCompletedFeedback(result.xp)
+    is QuestCompletionService.Result.RequirementsIncomplete ->
+        "Complete remaining requirements first"
     QuestCompletionService.Result.AlreadyCompleted ->
         "Quest already completed"
     QuestCompletionService.Result.NotFound ->
@@ -424,4 +512,6 @@ internal fun questCompletionUserMessage(result: QuestCompletionService.Result): 
         "Daily XP cap reached"
     QuestCompletionService.Result.ModuleDisabled ->
         "This quest belongs to a disabled module"
+    QuestCompletionService.Result.WrongDay ->
+        SystemMessages.DATE_QUEST_WRONG_DAY
 }

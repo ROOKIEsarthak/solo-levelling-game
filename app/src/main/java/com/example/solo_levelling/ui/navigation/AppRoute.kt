@@ -16,7 +16,10 @@ sealed class AppRoute(val route: String) {
     data object Analytics : AppRoute("analytics")
     data object More : AppRoute("more")
     data object Settings : AppRoute("settings")
+    data object ModuleSetup : AppRoute("module_setup/{moduleId}")
 }
+
+fun moduleSetupRoute(moduleId: String): String = "module_setup/$moduleId"
 
 /** Primary mobile bottom tabs (Sovereign OS shell). */
 val mainTabs = listOf(

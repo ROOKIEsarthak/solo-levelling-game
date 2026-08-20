@@ -10,6 +10,7 @@ import com.example.solo_levelling.data.db.entity.BossQuestEntity
 import com.example.solo_levelling.data.db.entity.QuestInstanceEntity
 import com.example.solo_levelling.domain.model.QuestStatus
 import com.example.solo_levelling.domain.service.EnabledModules
+import com.example.solo_levelling.domain.service.QuestCompletionService
 import com.example.solo_levelling.domain.service.ModuleFlags
 import com.example.solo_levelling.domain.service.ModuleScope
 import java.time.DayOfWeek
@@ -28,7 +29,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 enum class QuestTab {
-    TODAY, WEEKLY, MILESTONES, RECOVERY, BOSSES
+    TODAY, WEEKLY, MILESTONES, BOSSES
 }
 
 data class BossProgressUi(
@@ -39,6 +40,9 @@ data class BossProgressUi(
 data class QuestListItem(
     val instance: QuestInstanceEntity,
     val priorityTags: String,
+    val templateKey: String = "",
+    val completedRequirements: Int = 0,
+    val totalRequirements: Int = 0,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -53,6 +57,12 @@ class QuestsViewModel(
     fun selectTab(tab: QuestTab) {
         _selectedTab.value = tab
     }
+
+    suspend fun complete(instanceId: Long): QuestCompletionService.Result =
+        container.questCompletion.complete(instanceId)
+
+    suspend fun undo(instanceId: Long): Boolean =
+        container.questCompletion.undo(instanceId)
 
     private val dateContext = container.db.playerDao().observeProfile(SystemDefaults.PLAYER_ID)
         .map { p ->
@@ -79,7 +89,8 @@ class QuestsViewModel(
                     container.db.questDao().observeTemplates(),
                 ) { list, templates ->
                     val tagsById = templates.associate { it.id to it.priorityTags }
-                    val items = list.map { QuestListItem(it, tagsById[it.templateId].orEmpty()) }
+                    val keysById = templates.associate { it.id to it.key }
+                    val items = questListItemsFromTemplates(list, tagsById, keysById)
                     availableXpForModules(items, modules)
                 }
             }
@@ -88,21 +99,50 @@ class QuestsViewModel(
     val quests: StateFlow<List<QuestListItem>> =
         combine(dateContext, _selectedTab, enabledModules) { ctx, tab, modules -> Triple(ctx, tab, modules) }
             .flatMapLatest { (ctx, tab, modules) ->
+                if (tab == QuestTab.MILESTONES) {
+                    return@flatMapLatest combine(
+                        container.db.questDao().observeInstancesByType("MILESTONE"),
+                        container.db.questDao().observeInstancesByType("DAILY"),
+                        container.db.questDao().observeInstancesByType("WEEKLY"),
+                        container.db.questDao().observeTemplates(),
+                    ) { milestones, dailies, weeklies, templates ->
+                        val templatesById = templates.associateBy { it.id }
+                        val weekPool = dailies + weeklies
+                        questItemsForModules(
+                            milestones.mapNotNull { instance ->
+                                val template = templatesById[instance.templateId] ?: return@mapNotNull null
+                                val progress = container.milestoneVerification.evaluate(
+                                    instance,
+                                    weekPool,
+                                    templatesById,
+                                    modules,
+                                )
+                                QuestListItem(
+                                    instance = instance,
+                                    priorityTags = template.priorityTags,
+                                    templateKey = template.key,
+                                    completedRequirements = progress.completedCount,
+                                    totalRequirements = progress.totalCount,
+                                )
+                            },
+                            modules,
+                        )
+                    }
+                }
                 val instances = when (tab) {
                     QuestTab.TODAY -> container.db.questDao().observeInstancesForDate(ctx.today)
                         .map { list -> list.filter { it.type == "DAILY" } }
                     QuestTab.WEEKLY -> container.db.questDao().observeInstancesByType("WEEKLY")
                         .map { list -> list.filter { it.scheduledDate in ctx.weekStart..ctx.weekEnd } }
                     QuestTab.MILESTONES -> container.db.questDao().observeInstancesByType("MILESTONE")
-                    QuestTab.RECOVERY -> container.db.questDao().observeInstancesByType("RECOVERY")
-                        .map { list -> list.filter { it.scheduledDate == ctx.today } }
                     QuestTab.BOSSES -> container.db.questDao().observeInstancesForDate(ctx.today)
                         .map { emptyList() }
                 }
                 combine(instances, container.db.questDao().observeTemplates()) { list, templates ->
                     val tagsById = templates.associate { it.id to it.priorityTags }
+                    val keysById = templates.associate { it.id to it.key }
                     questItemsForModules(
-                        list.map { QuestListItem(it, tagsById[it.templateId].orEmpty()) },
+                        questListItemsFromTemplates(list, tagsById, keysById),
                         modules,
                     )
                 }
@@ -140,6 +180,19 @@ class QuestsViewModel(
     }
 }
 
+internal fun questListItemsFromTemplates(
+    instances: List<QuestInstanceEntity>,
+    tagsById: Map<Long, String>,
+    keysById: Map<Long, String>,
+): List<QuestListItem> = instances.mapNotNull { instance ->
+    val tags = tagsById[instance.templateId] ?: return@mapNotNull null
+    QuestListItem(
+        instance = instance,
+        priorityTags = tags,
+        templateKey = keysById[instance.templateId].orEmpty(),
+    )
+}
+
 internal fun questItemsForModules(
     items: List<QuestListItem>,
     modules: EnabledModules,
@@ -158,5 +211,6 @@ internal fun bossQuestsForModules(
     tagsByTemplateKey: Map<String, String>,
     modules: EnabledModules,
 ): List<BossQuestEntity> = quests.filter { quest ->
-    ModuleScope.allowsQuestTemplate(tagsByTemplateKey[quest.templateKey].orEmpty(), modules)
+    val tags = tagsByTemplateKey[quest.templateKey] ?: return@filter false
+    ModuleScope.allowsQuestTemplate(tags, modules)
 }

@@ -57,6 +57,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -73,6 +75,7 @@ import com.example.solo_levelling.ui.analysis.SystemAnalysisScreen
 import com.example.solo_levelling.ui.analysis.analysisRedirectRoute
 import com.example.solo_levelling.ui.analytics.AnalyticsScreen
 import com.example.solo_levelling.ui.career.CareerScreen
+import com.example.solo_levelling.ui.career.CareerTab
 import com.example.solo_levelling.ui.character.CharacterScreen
 import com.example.solo_levelling.ui.consent.SystemConsentScreen
 import com.example.solo_levelling.ui.dashboard.DashboardScreen
@@ -83,6 +86,7 @@ import com.example.solo_levelling.ui.levelup.LevelUpHost
 import com.example.solo_levelling.ui.modules.ModulesScreen
 import com.example.solo_levelling.ui.more.MoreScreen
 import com.example.solo_levelling.ui.navigation.AppRoute
+import com.example.solo_levelling.ui.navigation.QuestDestinationResolver
 import com.example.solo_levelling.ui.navigation.buildMainTabs
 import com.example.solo_levelling.ui.navigation.redirectForDisabledModuleRoute
 import com.example.solo_levelling.ui.navigation.selectedPrimaryRoute
@@ -91,15 +95,21 @@ import com.example.solo_levelling.ui.navigation.showBottomBarForRoute
 import com.example.solo_levelling.ui.navigation.sovereignTabLabel
 import com.example.solo_levelling.ui.onboarding.OnboardingScreen
 import com.example.solo_levelling.ui.quests.QuestsScreen
+import com.example.solo_levelling.ui.settings.ModuleSetupScreen
 import com.example.solo_levelling.ui.settings.SettingsScreen
+import com.example.solo_levelling.ui.settings.systemUpdatedMessage
+import com.example.solo_levelling.ui.navigation.moduleSetupRoute
 import com.example.solo_levelling.ui.streak.StreakRecoveryHost
 import com.example.solo_levelling.ui.components.CyberProgressBar
 import com.example.solo_levelling.ui.theme.JetBrainsMono
+import com.example.solo_levelling.ui.theme.SystemOnPrimary
 import com.example.solo_levelling.ui.theme.SystemPrimary
 import com.example.solo_levelling.ui.theme.SystemPrimaryContainer
 import com.example.solo_levelling.ui.theme.SystemSurface2
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val WelcomeMinMs = 3_200L
 
@@ -135,6 +145,8 @@ fun SoloLevellingAppRoot(container: AppContainer) {
     val navController = rememberNavController()
     val start = remember { lockStartRoute(null, onboardingDone) }
     var pendingOnboardingInput by remember { mutableStateOf<OnboardingInput?>(null) }
+    var pendingSetupQueue by remember { mutableStateOf<List<String>>(emptyList()) }
+    var pendingDeferredDisables by remember { mutableStateOf<List<String>>(emptyList()) }
     val backStack by navController.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
     val scope = rememberCoroutineScope()
@@ -162,6 +174,9 @@ fun SoloLevellingAppRoot(container: AppContainer) {
     val xpProgress = (xpInto.toFloat() / xpNeed.toFloat()).coerceIn(0f, 1f)
 
     var fabExpanded by remember { mutableStateOf(false) }
+    var modulesSection by remember { mutableStateOf("") }
+    var careerSection by remember { mutableStateOf("") }
+    var fitnessReviewDate by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(current, modules) {
         redirectForDisabledModuleRoute(current, modules)?.let { target ->
@@ -219,6 +234,7 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                         }
                         FabDialItem("[ ADD WEIGHT ]") {
                             fabExpanded = false
+                            modulesSection = QuestDestinationResolver.SECTION_METRICS
                             navController.navigate(AppRoute.Modules.route)
                         }
                         Spacer(Modifier.height(8.dp))
@@ -226,7 +242,7 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                     FloatingActionButton(
                         onClick = { fabExpanded = !fabExpanded },
                         containerColor = SystemPrimaryContainer,
-                        contentColor = Color(0xFF05070D),
+                        contentColor = SystemOnPrimary,
                     ) {
                         Icon(
                             if (fabExpanded) Icons.Default.Close else Icons.Default.Add,
@@ -399,8 +415,14 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                             onOpenWorkout = { navController.navigate(AppRoute.Fitness.route) },
                             onOpenNutrition = { navController.navigate(AppRoute.Nutrition.route) },
                             onOpenMissions = { navController.navigate(AppRoute.Quests.route) },
-                            onOpenCareer = { navController.navigate(AppRoute.Career.route) },
-                            onOpenModules = { navController.navigate(AppRoute.Modules.route) },
+                            onOpenCareer = { section ->
+                                careerSection = section
+                                navController.navigate(AppRoute.Career.route)
+                            },
+                            onOpenModules = { section ->
+                                modulesSection = section
+                                navController.navigate(AppRoute.Modules.route)
+                            },
                             onOpenCharacter = { navController.navigate(AppRoute.Character.route) },
                             onMessage = showMessage,
                         )
@@ -411,18 +433,37 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                             onMessage = showMessage,
                             onOpenWorkout = { navController.navigate(AppRoute.Fitness.route) },
                             onOpenNutrition = { navController.navigate(AppRoute.Nutrition.route) },
-                            onOpenCareer = { navController.navigate(AppRoute.Career.route) },
-                            onOpenModules = { navController.navigate(AppRoute.Modules.route) },
+                            onOpenCareer = { section ->
+                                careerSection = section
+                                navController.navigate(AppRoute.Career.route)
+                            },
+                            onOpenModules = { section ->
+                                modulesSection = section
+                                navController.navigate(AppRoute.Modules.route)
+                            },
                         )
                     }
                     composable(AppRoute.Career.route) {
-                        CareerScreen(container = container, onMessage = showMessage)
+                        val tab = when (careerSection) {
+                            QuestDestinationResolver.SECTION_DSA -> CareerTab.Dsa
+                            QuestDestinationResolver.SECTION_SYSTEM_DESIGN -> CareerTab.SystemDesign
+                            else -> CareerTab.Roadmap
+                        }
+                        CareerScreen(
+                            container = container,
+                            initialTab = tab,
+                            onMessage = showMessage,
+                        )
                     }
                     composable(AppRoute.History.route) {
                         HistoryScreen(
                             container = container,
                             onOpenWorkout = { navController.navigate(AppRoute.Fitness.route) },
                             onOpenDiet = { navController.navigate(AppRoute.Nutrition.route) },
+                            onReviewWorkout = { date ->
+                                fitnessReviewDate = date
+                                navController.navigate(AppRoute.Fitness.route)
+                            },
                             showWorkout = modules.workout,
                             showDiet = modules.diet,
                         )
@@ -434,6 +475,8 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                             container = container,
                             tab = FitnessTab.Workout,
                             onMessage = showMessage,
+                            openReviewDate = fitnessReviewDate,
+                            onReviewDateConsumed = { fitnessReviewDate = null },
                         )
                     }
                     composable(AppRoute.Nutrition.route) {
@@ -444,7 +487,11 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                         )
                     }
                     composable(AppRoute.Modules.route) {
-                        ModulesScreen(container = container, onMessage = showMessage)
+                        ModulesScreen(
+                            container = container,
+                            onMessage = showMessage,
+                            initialSection = modulesSection,
+                        )
                     }
                     composable(AppRoute.Analytics.route) {
                         AnalyticsScreen(container = container, onMessage = showMessage)
@@ -455,10 +502,16 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                             onOpenProgress = { navController.navigate(AppRoute.Analytics.route) },
                             onOpenSelf = { navController.navigate(AppRoute.Character.route) },
                             onOpenHistory = { navController.navigate(AppRoute.History.route) },
-                            onOpenLife = { navController.navigate(AppRoute.Modules.route) },
+                            onOpenLife = {
+                                modulesSection = ""
+                                navController.navigate(AppRoute.Modules.route)
+                            },
                             onOpenAchievements = { navController.navigate(AppRoute.Achievements.route) },
                             onOpenSettings = { navController.navigate(AppRoute.Settings.route) },
-                            onOpenCareer = { navController.navigate(AppRoute.Career.route) },
+                            onOpenCareer = {
+                                careerSection = ""
+                                navController.navigate(AppRoute.Career.route)
+                            },
                             onOpenWorkout = { navController.navigate(AppRoute.Fitness.route) },
                             onOpenNutrition = { navController.navigate(AppRoute.Nutrition.route) },
                             showCareer = modules.career,
@@ -476,6 +529,64 @@ fun SoloLevellingAppRoot(container: AppContainer) {
                                     popUpTo(0) { inclusive = true }
                                 }
                             },
+                            onBeginModuleSetup = { queue, deferred ->
+                                pendingSetupQueue = queue.drop(1)
+                                pendingDeferredDisables = deferred
+                                queue.firstOrNull()?.let { first ->
+                                    navController.navigate(moduleSetupRoute(first))
+                                }
+                            },
+                            onModuleChangesApplied = {
+                                navController.navigate(AppRoute.Dashboard.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = false
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = false
+                                }
+                            },
+                        )
+                    }
+                    composable(
+                        route = AppRoute.ModuleSetup.route,
+                        arguments = listOf(
+                            navArgument("moduleId") { type = NavType.StringType },
+                        ),
+                    ) { entry ->
+                        val moduleId = entry.arguments?.getString("moduleId").orEmpty()
+                        ModuleSetupScreen(
+                            container = container,
+                            moduleId = moduleId,
+                            onFinished = { message ->
+                                val next = pendingSetupQueue.firstOrNull()
+                                if (next != null) {
+                                    pendingSetupQueue = pendingSetupQueue.drop(1)
+                                    showMessage(message)
+                                    navController.navigate(moduleSetupRoute(next)) {
+                                        popUpTo(AppRoute.ModuleSetup.route) { inclusive = true }
+                                    }
+                                } else {
+                                    val deferred = pendingDeferredDisables
+                                    pendingDeferredDisables = emptyList()
+                                    pendingSetupQueue = emptyList()
+                                    scope.launch(Dispatchers.IO) {
+                                        if (deferred.isNotEmpty()) {
+                                            container.moduleLifecycle.applyDeferredDisables(deferred)
+                                        }
+                                        withContext(Dispatchers.Main) {
+                                            showMessage(systemUpdatedMessage())
+                                            navController.navigate(AppRoute.Dashboard.route) {
+                                                popUpTo(navController.graph.findStartDestination().id) {
+                                                    saveState = false
+                                                }
+                                                launchSingleTop = true
+                                                restoreState = false
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            onCancel = { navController.popBackStack() },
                         )
                     }
                 }

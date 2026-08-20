@@ -40,6 +40,27 @@ class PriorityEngineTest {
     }
 
     @Test
+    fun p_incompleteMeals_prioritizesNutritionTracking() {
+        val action = PriorityEngine.nextAction(
+            dsaPct = 50,
+            sdPct = 50,
+            backendPct = 50,
+            behavioralPct = 50,
+            mandatoryAreas = emptyList(),
+            workoutDoneToday = true,
+            workoutPlannedToday = false,
+            dietCaloriePctOfTarget = 60,
+            proteinPctOfTarget = 50,
+            openQuestsRemaining = 0,
+            mealsLoggedToday = 1,
+            mealsRequiredToday = 3,
+            modules = EnabledModules(career = false, workout = false, diet = true),
+        )
+        assertEquals("nutrition", action.routeHint)
+        assertEquals("Complete meal tracking", action.title)
+    }
+
+    @Test
     fun p_lowProteinLateDay_prioritizesNutrition() {
         val action = PriorityEngine.nextAction(
             dsaPct = 50,

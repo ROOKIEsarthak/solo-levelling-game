@@ -896,26 +896,24 @@ private fun BodyFields(
             )
         }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = heightCm,
-            onValueChange = onHeightChange,
-            label = { Text("Height cm") },
-            placeholder = { Text("Enter your height") },
-            modifier = Modifier.weight(1f),
-            singleLine = true,
-            colors = fieldColors,
-        )
-        OutlinedTextField(
-            value = weightKg,
-            onValueChange = onWeightChange,
-            label = { Text("Weight kg") },
-            placeholder = { Text("Enter your weight") },
-            modifier = Modifier.weight(1f),
-            singleLine = true,
-            colors = fieldColors,
-        )
-    }
+    OutlinedTextField(
+        value = heightCm,
+        onValueChange = onHeightChange,
+        label = { Text("Height cm") },
+        placeholder = { Text("Enter your height") },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        colors = fieldColors,
+    )
+    OutlinedTextField(
+        value = weightKg,
+        onValueChange = onWeightChange,
+        label = { Text("Weight kg") },
+        placeholder = { Text("Enter your weight") },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        colors = fieldColors,
+    )
     if (showTrainingExperience) {
         Text("Training experience", style = MaterialTheme.typography.labelMedium)
         ChipRow(listOf("beginner", "intermediate", "advanced"), trainingExperience, chipColors) {

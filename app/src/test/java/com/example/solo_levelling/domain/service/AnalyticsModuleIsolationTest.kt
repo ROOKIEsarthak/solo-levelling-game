@@ -4,6 +4,8 @@ import com.example.solo_levelling.core.time.FakeAppClock
 import com.example.solo_levelling.data.db.JsonDatabase
 import com.example.solo_levelling.data.db.entity.AttributeStatEntity
 import com.example.solo_levelling.data.db.entity.DsaProblemEntity
+import com.example.solo_levelling.data.db.entity.LoggedExerciseEntity
+import com.example.solo_levelling.data.db.entity.LoggedSetEntity
 import com.example.solo_levelling.data.db.entity.MetricLogEntity
 import com.example.solo_levelling.data.db.entity.NutritionLogEntity
 import com.example.solo_levelling.data.db.entity.PlayerProfileEntity
@@ -114,6 +116,12 @@ class AnalyticsModuleIsolationTest {
                 dayOfWeek = "SATURDAY",
                 workoutName = "Push",
                 durationMinutes = 45,
+                exercises = listOf(
+                    LoggedExerciseEntity(
+                        name = "Bench",
+                        sets = listOf(LoggedSetEntity(60f, 8)),
+                    ),
+                ),
             ),
         )
     }
@@ -141,7 +149,9 @@ class AnalyticsModuleIsolationTest {
 
         val withoutCareerData = analytics.weeklyReview()
         assertNull(withoutCareerData.dsaSolvedWeek)
+        assertNull(withoutCareerData.careerXp)
         assertEquals(1, withoutCareerData.workoutCountWeek)
+        assertNotNull(withoutCareerData.workoutXp)
         val scoreFitnessOnly = withoutCareerData.personalScore
 
         for ((k, v) in ModuleFlags.encode(EnabledModules(career = true, workout = true, diet = false))) {
@@ -201,6 +211,9 @@ class AnalyticsModuleIsolationTest {
         val review = analytics.weeklyReview()
         assertNull(review.dsaSolvedWeek)
         assertNull(review.workoutCountWeek)
+        assertNull(review.careerXp)
+        assertNull(review.workoutXp)
+        assertNotNull(review.dietXp)
     }
 
     @Test
@@ -302,5 +315,58 @@ class AnalyticsModuleIsolationTest {
         val adaptive = AdaptiveService(db, clock)
         val keys = adaptive.suggestions().map { it.key }
         assertTrue(keys.none { it.contains("INT") })
+    }
+
+    @Test
+    fun n_weeklyReview_excludesFutureWorkoutLogs() = runTest {
+        seed(EnabledModules(career = false, workout = true, diet = false))
+        seedWorkoutToday()
+        db.moduleDao().upsertWorkoutLog(
+            WorkoutLogEntity(
+                date = "2026-08-16",
+                workoutName = "Future",
+                exercises = listOf(
+                    LoggedExerciseEntity(
+                        name = "Squat",
+                        sets = listOf(LoggedSetEntity(80f, 5)),
+                    ),
+                ),
+            ),
+        )
+        val review = analytics.weeklyReview()
+        assertEquals(1, review.workoutCountWeek)
+        assertEquals(1, review.workoutDaysWeek)
+    }
+
+    @Test
+    fun p_weeklyReview_includesPastWorkoutsInWeek() = runTest {
+        seed(EnabledModules(career = false, workout = true, diet = false))
+        seedWorkoutToday()
+        db.moduleDao().upsertWorkoutLog(
+            WorkoutLogEntity(
+                date = "2026-08-12",
+                workoutName = "Pull",
+                exercises = listOf(
+                    LoggedExerciseEntity(
+                        name = "Row",
+                        sets = listOf(LoggedSetEntity(70f, 8)),
+                    ),
+                ),
+            ),
+        )
+        val review = analytics.weeklyReview()
+        assertEquals(2, review.workoutCountWeek)
+        assertEquals(2, review.workoutDaysWeek)
+    }
+
+    @Test
+    fun n_weeklyReview_ignoresEmptyWorkoutSeed() = runTest {
+        seed(EnabledModules(career = false, workout = true, diet = false))
+        db.moduleDao().upsertWorkoutLog(
+            WorkoutLogEntity(date = "2026-08-15", workoutName = "Empty"),
+        )
+        val review = analytics.weeklyReview()
+        assertEquals(0, review.workoutCountWeek)
+        assertEquals(0, review.workoutDaysWeek)
     }
 }

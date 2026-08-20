@@ -6,15 +6,21 @@ import com.example.solo_levelling.core.event.EventBus
 import com.example.solo_levelling.core.time.AppClock
 import com.example.solo_levelling.data.db.JsonDatabase
 import com.example.solo_levelling.data.db.entity.XpLedgerEntryEntity
+import com.example.solo_levelling.domain.logic.ActivityDatePolicy
 import com.example.solo_levelling.domain.model.QuestStatus
+import com.example.solo_levelling.domain.model.QuestType
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.time.LocalDate
+import java.time.ZoneId
 
 class QuestCompletionService(
     private val db: JsonDatabase,
     private val eventBus: EventBus,
     private val clock: AppClock,
     private val progression: ProgressionService,
+    private val milestoneVerification: MilestoneVerificationService? = null,
+    private val postQuest: PostQuestCompletionCoordinator? = null,
 ) {
     private val mutex = Mutex()
 
@@ -27,11 +33,16 @@ class QuestCompletionService(
             val newRank: String,
         ) : Result()
 
+        data class RequirementsIncomplete(
+            val verification: MilestoneVerificationResult,
+        ) : Result()
+
         data object AlreadyCompleted : Result()
         data object NotFound : Result()
         data object InvalidStatus : Result()
         data object DailyCapReached : Result()
         data object ModuleDisabled : Result()
+        data object WrongDay : Result()
     }
 
     suspend fun complete(instanceId: Long): Result {
@@ -53,8 +64,30 @@ class QuestCompletionService(
                 return@withLock Pending(Result.ModuleDisabled, emptyList())
             }
 
+            if (instance.type == QuestType.MILESTONE.name) {
+                val verification = milestoneVerification?.verify(instance)
+                    ?: MilestoneVerificationResult(false, 0, 0, emptyList())
+                if (!verification.ready) {
+                    return@withLock Pending(Result.RequirementsIncomplete(verification), emptyList())
+                }
+            }
+
             val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
                 ?: return@withLock Pending(Result.NotFound, emptyList())
+
+            if (instance.type != QuestType.MILESTONE.name) {
+                val zone = runCatching { ZoneId.of(profile.timezone) }.getOrDefault(ZoneId.systemDefault())
+                val today = clock.today(zone)
+                val scheduled = runCatching { LocalDate.parse(instance.scheduledDate) }.getOrNull()
+                    ?: return@withLock Pending(Result.WrongDay, emptyList())
+                val allowed = when (instance.type) {
+                    QuestType.WEEKLY.name -> ActivityDatePolicy.canCompleteWeeklyQuest(today, scheduled)
+                    else -> ActivityDatePolicy.canCompleteDailyQuest(today, scheduled)
+                }
+                if (!allowed) {
+                    return@withLock Pending(Result.WrongDay, emptyList())
+                }
+            }
 
             val moduleId = ModuleScope.moduleForPriorityTags(priorityTags)
             var xpAmount = instance.baseXp
@@ -125,17 +158,41 @@ class QuestCompletionService(
             }
         }
         pending.events.forEach { eventBus.publish(it) }
+        val completed = pending.result
+        if (completed is Result.Completed && postQuest != null) {
+            val questCompleted = pending.events.filterIsInstance<DomainEvent.QuestCompleted>().firstOrNull()
+            if (questCompleted != null) {
+                postQuest.afterComplete(
+                    PostQuestCompletionCoordinator.CompleteContext(
+                        instanceId = questCompleted.instanceId,
+                        templateId = questCompleted.templateId,
+                        xpAwarded = questCompleted.xp,
+                    ),
+                )
+            }
+        }
         return pending.result
     }
 
-    suspend fun undo(instanceId: Long): Boolean {
+    suspend fun undo(
+        instanceId: Long,
+        ignoreWindow: Boolean = false,
+        penaltyPercent: Int = SystemDefaults.UNDO_XP_PENALTY_PERCENT,
+    ): Boolean {
         val pending = mutex.withLock {
             val questDao = db.questDao()
             val instance = questDao.getInstance(instanceId) ?: return@withLock PendingUndo(false, emptyList())
+            if (instance.type == QuestType.MILESTONE.name) return@withLock PendingUndo(false, emptyList())
             if (instance.status != QuestStatus.COMPLETED.name) return@withLock PendingUndo(false, emptyList())
+            val template = questDao.getTemplateById(instance.templateId)
+            if (!ModuleScope.allowsQuestTemplate(template?.priorityTags.orEmpty(), progression.currentModules())) {
+                return@withLock PendingUndo(false, emptyList())
+            }
             val completedAt = instance.completedAtEpochMs ?: return@withLock PendingUndo(false, emptyList())
             val undoWindowMs = SystemDefaults.QUEST_UNDO_MINUTES * 60_000L
-            if (clock.nowEpochMs() - completedAt > undoWindowMs) return@withLock PendingUndo(false, emptyList())
+            if (!ignoreWindow && clock.nowEpochMs() - completedAt > undoWindowMs) {
+                return@withLock PendingUndo(false, emptyList())
+            }
 
             val award = findUnrevertedQuestAward(instanceId) ?: return@withLock PendingUndo(false, emptyList())
 
@@ -145,9 +202,6 @@ class QuestCompletionService(
             var ok = false
 
             db.withTransaction {
-                questDao.updateInstance(
-                    instance.copy(status = QuestStatus.AVAILABLE.name, completedAtEpochMs = null),
-                )
                 ok = progression.reverseWithinTransaction(
                     originalSourceType = award.sourceType,
                     originalSourceId = award.sourceId,
@@ -156,16 +210,37 @@ class QuestCompletionService(
                     events = events,
                     attrs = attrs,
                 )
+                if (!ok) return@withTransaction
+                val penalty = SystemDefaults.undoPenaltyXp(award.amount, penaltyPercent)
+                if (penalty > 0) {
+                    progression.awardWithinTransaction(
+                        sourceType = "QUEST_UNDO_PENALTY",
+                        sourceId = "PENALTY_${award.id}",
+                        amount = -penalty,
+                        applyDailyCap = false,
+                        events = events,
+                        metadataJson = """{"originalLedgerId":${award.id}}""",
+                    )
+                }
+                questDao.updateInstance(
+                    instance.copy(status = QuestStatus.AVAILABLE.name, completedAtEpochMs = null),
+                )
             }
 
             if (ok) {
-                events += DomainEvent.QuestUndone(instanceId, instance.baseXp, clock.nowEpochMs())
+                events += DomainEvent.QuestUndone(instanceId, award.amount, clock.nowEpochMs())
                 PendingUndo(true, events.toList())
             } else {
                 PendingUndo(false, emptyList())
             }
         }
         pending.events.forEach { eventBus.publish(it) }
+        if (pending.ok && postQuest != null) {
+            val undone = pending.events.filterIsInstance<DomainEvent.QuestUndone>().firstOrNull()
+            if (undone != null) {
+                postQuest.afterUndo(undone.instanceId, undone.xpReversed)
+            }
+        }
         return pending.ok
     }
 

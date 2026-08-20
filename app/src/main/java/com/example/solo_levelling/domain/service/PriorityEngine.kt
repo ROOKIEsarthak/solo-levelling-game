@@ -19,6 +19,8 @@ object PriorityEngine {
         dietCaloriePctOfTarget: Int,
         proteinPctOfTarget: Int,
         openQuestsRemaining: Int,
+        mealsLoggedToday: Int = 3,
+        mealsRequiredToday: Int = 3,
         modules: EnabledModules = EnabledModules(career = true, workout = true, diet = true),
     ): NextAction {
         if (modules.workout && workoutPlannedToday && !workoutDoneToday) {
@@ -27,6 +29,20 @@ object PriorityEngine {
                 detail = "A planned session is still open.",
                 reason = "Fitness block is scheduled and not finished.",
                 routeHint = "fitness",
+            )
+        }
+
+        if (modules.diet && mealsLoggedToday < mealsRequiredToday) {
+            val remaining = mealsRequiredToday - mealsLoggedToday
+            return NextAction(
+                title = "Complete meal tracking",
+                detail = if (remaining == 1) {
+                    "Log 1 more meal to complete today's nutrition tracking."
+                } else {
+                    "Log $remaining more meals to complete today's nutrition tracking."
+                },
+                reason = "Daily meal tracking is not complete yet.",
+                routeHint = "nutrition",
             )
         }
 

@@ -87,6 +87,10 @@ interface QuestDao {
 
     suspend fun updateInstance(instance: QuestInstanceEntity)
 
+    suspend fun getAllInstances(): List<QuestInstanceEntity>
+
+    suspend fun deleteInstance(id: Long)
+
     suspend fun countCompletedAll(): Int
 
     suspend fun getInstancesBeforeDate(date: String): List<QuestInstanceEntity>

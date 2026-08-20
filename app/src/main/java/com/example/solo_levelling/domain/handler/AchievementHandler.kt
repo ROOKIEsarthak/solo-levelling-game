@@ -29,7 +29,6 @@ class AchievementHandler(
         scope.launch {
             eventBus.events.collect { event ->
                 when (event) {
-                    is DomainEvent.QuestCompleted,
                     is DomainEvent.StreakUpdated,
                     is DomainEvent.LevelUp,
                     is DomainEvent.BossProgressUpdated,

@@ -30,6 +30,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,6 +40,7 @@ import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.core.config.SystemDefaults
 import com.example.solo_levelling.data.db.entity.CareerNodeEntity
 import com.example.solo_levelling.data.db.entity.DsaProblemEntity
+import com.example.solo_levelling.domain.copy.SystemMessages
 import com.example.solo_levelling.domain.service.EnabledModules
 import com.example.solo_levelling.domain.service.EntryValidation
 import com.example.solo_levelling.domain.service.ModuleFlags
@@ -49,6 +52,7 @@ import com.example.solo_levelling.ui.components.GlassSurface
 import com.example.solo_levelling.ui.components.SystemActionButton
 import com.example.solo_levelling.ui.components.SystemIdleEmpty
 import com.example.solo_levelling.ui.components.SystemSectionHeader
+import com.example.solo_levelling.ui.navigation.QuestDestinationResolver
 import com.example.solo_levelling.ui.theme.JetBrainsMono
 import com.example.solo_levelling.ui.theme.Spacing
 import com.example.solo_levelling.ui.theme.SystemPrimary
@@ -59,10 +63,59 @@ import com.example.solo_levelling.ui.theme.SystemTertiary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+internal enum class FocusTimerPhase { IDLE, RUNNING, PAUSED }
+
+internal data class FocusTimerState(val running: Boolean, val secondsLeft: Int)
+
+internal fun focusTimerPhase(running: Boolean, secondsLeft: Int): FocusTimerPhase = when {
+    running -> FocusTimerPhase.RUNNING
+    secondsLeft > 0 -> FocusTimerPhase.PAUSED
+    else -> FocusTimerPhase.IDLE
+}
+
+internal fun focusTimerStatusLabel(phase: FocusTimerPhase, hasLoggedToday: Boolean): String = when (phase) {
+    FocusTimerPhase.RUNNING -> "RUNNING"
+    FocusTimerPhase.PAUSED -> "PAUSED"
+    FocusTimerPhase.IDLE -> if (hasLoggedToday) "LOGGED" else "IDLE"
+}
+
+internal fun focusTimerPrimaryLabel(phase: FocusTimerPhase): String = when (phase) {
+    FocusTimerPhase.IDLE -> "START TIMER"
+    FocusTimerPhase.RUNNING -> "STOP TIMER"
+    FocusTimerPhase.PAUSED -> "RESUME"
+}
+
+internal fun focusTimerSecondaryLabel(phase: FocusTimerPhase): String = when (phase) {
+    FocusTimerPhase.PAUSED -> "RESTART"
+    else -> "LOG NOW"
+}
+
+internal fun formatFocusTimerClock(secondsLeft: Int): String =
+    "${secondsLeft / 60}:${"%02d".format(secondsLeft % 60)}"
+
+internal fun focusTimerStart(minutes: Int) = FocusTimerState(running = true, secondsLeft = minutes * 60)
+
+internal fun focusTimerStop(secondsLeft: Int) = FocusTimerState(running = false, secondsLeft = secondsLeft)
+
+internal fun focusTimerResume(secondsLeft: Int) = FocusTimerState(running = true, secondsLeft = secondsLeft)
+
+internal fun modulesScrollTargetY(
+    section: String,
+    focusY: Int,
+    metricsY: Int,
+    journalY: Int,
+): Int = when (section) {
+    QuestDestinationResolver.SECTION_FOCUS -> focusY
+    QuestDestinationResolver.SECTION_METRICS -> metricsY
+    QuestDestinationResolver.SECTION_JOURNAL -> journalY
+    else -> 0
+}
+
 @Composable
 fun ModulesScreen(
     container: AppContainer,
     onMessage: (String) -> Unit = {},
+    initialSection: String = "",
 ) {
     val vm: ModulesViewModel = viewModel(factory = ModulesViewModel.factory(container))
     val dsa by vm.dsa.collectAsStateWithLifecycle()
@@ -103,23 +156,43 @@ fun ModulesScreen(
         } else if (timerRunning && secondsLeft == 0) {
             timerRunning = false
             val mins = focusMinutes.toIntOrNull()?.coerceAtLeast(1) ?: 25
-            container.modules.logFocus(mins, focusLabel.ifBlank { "Focus" })
+            vm.logFocus(mins, focusLabel.ifBlank { "Focus" })
         }
     }
 
     val routineKinds = listOf("WAKE", "SLEEP", "READ", "MEDITATE")
     val loggedRoutineKinds = routinesToday.map { it.kind }.toSet()
     val focusTotal = focusToday.sumOf { it.durationMinutes }
+    val timerPhase = focusTimerPhase(timerRunning, secondsLeft)
+    val onLogNow: () -> Unit = {
+        scope.launch {
+            EntryValidation.requirePositiveInt(focusMinutes, "minutes")?.let {
+                onMessage(it)
+                return@launch
+            }
+            val mins = focusMinutes.trim().toInt()
+            vm.logFocus(mins, focusLabel.ifBlank { "Focus" })
+            onMessage("Logged $mins focus minutes")
+        }
+    }
     val todaySteps = recentMetrics.filter { it.metricType == "STEPS" }.firstOrNull()
     val latestWeight = recentMetrics.filter { it.metricType == "WEIGHT" }.firstOrNull()
     val activeBosses = bosses.filter { it.status == "ACTIVE" }
+    val scroll = rememberScrollState()
+    var focusY by remember { mutableIntStateOf(0) }
+    var metricsY by remember { mutableIntStateOf(0) }
+    var journalY by remember { mutableIntStateOf(0) }
+    LaunchedEffect(initialSection, focusY, metricsY, journalY) {
+        val y = modulesScrollTargetY(initialSection, focusY, metricsY, journalY)
+        if (y > 0) scroll.animateScrollTo(y)
+    }
 
     Box(Modifier.fillMaxSize()) {
         EnergyFieldBackground(Modifier.fillMaxSize())
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scroll)
                 .padding(Spacing.screen),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
@@ -135,177 +208,202 @@ fun ModulesScreen(
                 fontFamily = JetBrainsMono,
             )
 
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            GlassSurface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onGloballyPositioned { focusY = it.positionInParent().y.toInt() },
+                level = GlassLevel.Level2,
+                borderAlpha = 0.35f,
             ) {
-                GlassSurface(
-                    modifier = Modifier.weight(1.4f),
-                    level = GlassLevel.Level2,
-                    borderAlpha = 0.35f,
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SystemSectionHeader(tag = "FOCUS", accent = SystemSecondary)
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            BracketLabel(
-                                text = if (timerRunning) "RUNNING" else if (focusTotal > 0) "LOGGED" else "IDLE",
-                                color = when {
-                                    timerRunning -> SystemTertiary
-                                    focusTotal > 0 -> SystemSuccess
-                                    else -> colors.onSurfaceVariant
-                                },
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SystemSectionHeader(tag = "FOCUS", accent = SystemSecondary)
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        BracketLabel(
+                            text = focusTimerStatusLabel(timerPhase, focusTotal > 0),
+                            color = when (timerPhase) {
+                                FocusTimerPhase.RUNNING -> SystemTertiary
+                                FocusTimerPhase.PAUSED -> SystemSecondary
+                                FocusTimerPhase.IDLE -> if (focusTotal > 0) SystemSuccess else colors.onSurfaceVariant
+                            },
+                        )
+                        if (timerPhase != FocusTimerPhase.IDLE) {
+                            Text(
+                                formatFocusTimerClock(secondsLeft),
+                                fontFamily = JetBrainsMono,
+                                fontWeight = FontWeight.Bold,
+                                color = SystemPrimary,
+                                style = MaterialTheme.typography.headlineSmall,
                             )
-                            if (timerRunning) {
-                                Text(
-                                    "${secondsLeft / 60}:${"%02d".format(secondsLeft % 60)}",
-                                    fontFamily = JetBrainsMono,
-                                    fontWeight = FontWeight.Bold,
-                                    color = SystemPrimary,
-                                    style = MaterialTheme.typography.headlineSmall,
-                                )
-                            }
                         }
-                        OutlinedTextField(
-                            focusMinutes,
-                            { focusMinutes = it },
-                            label = { Text("Minutes") },
-                            modifier = Modifier.fillMaxWidth(),
+                    }
+                    OutlinedTextField(
+                        focusMinutes,
+                        { focusMinutes = it },
+                        label = { Text("Minutes") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        focusLabel,
+                        { focusLabel = it },
+                        label = { Text("Label") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SystemActionButton(
+                            label = focusTimerPrimaryLabel(timerPhase),
+                            onClick = {
+                                when (timerPhase) {
+                                    FocusTimerPhase.IDLE -> {
+                                        EntryValidation.requirePositiveInt(focusMinutes, "minutes")?.let {
+                                            onMessage(it)
+                                            return@SystemActionButton
+                                        }
+                                        val next = focusTimerStart(focusMinutes.trim().toInt())
+                                        secondsLeft = next.secondsLeft
+                                        timerRunning = next.running
+                                    }
+                                    FocusTimerPhase.RUNNING -> {
+                                        val next = focusTimerStop(secondsLeft)
+                                        secondsLeft = next.secondsLeft
+                                        timerRunning = next.running
+                                    }
+                                    FocusTimerPhase.PAUSED -> {
+                                        val next = focusTimerResume(secondsLeft)
+                                        secondsLeft = next.secondsLeft
+                                        timerRunning = next.running
+                                    }
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
                         )
-                        OutlinedTextField(
-                            focusLabel,
-                            { focusLabel = it },
-                            label = { Text("Label") },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SystemActionButton(
-                                label = "START TIMER",
-                                onClick = {
+                        SystemActionButton(
+                            label = focusTimerSecondaryLabel(timerPhase),
+                            onClick = {
+                                if (timerPhase == FocusTimerPhase.PAUSED) {
                                     EntryValidation.requirePositiveInt(focusMinutes, "minutes")?.let {
                                         onMessage(it)
                                         return@SystemActionButton
                                     }
-                                    val mins = focusMinutes.trim().toInt()
-                                    secondsLeft = mins * 60
-                                    timerRunning = true
-                                },
-                                enabled = !timerRunning,
-                                modifier = Modifier.weight(1f),
-                            )
-                            SystemActionButton(
-                                label = "LOG NOW",
-                                onClick = {
-                                    scope.launch {
-                                        EntryValidation.requirePositiveInt(focusMinutes, "minutes")?.let {
-                                            onMessage(it)
-                                            return@launch
-                                        }
-                                        val mins = focusMinutes.trim().toInt()
-                                        container.modules.logFocus(mins, focusLabel.ifBlank { "Focus" })
-                                        onMessage("Logged $mins focus minutes")
-                                    }
-                                },
-                                primary = false,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        if (focusTotal > 0) {
-                            Text(
-                                "Today: ${focusTotal}m focus logged",
-                                color = SystemSuccess,
-                                fontFamily = JetBrainsMono,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
+                                    val next = focusTimerStart(focusMinutes.trim().toInt())
+                                    secondsLeft = next.secondsLeft
+                                    timerRunning = next.running
+                                } else {
+                                    onLogNow()
+                                }
+                            },
+                            primary = false,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    if (timerPhase == FocusTimerPhase.PAUSED) {
+                        SystemActionButton(
+                            label = "LOG NOW",
+                            onClick = onLogNow,
+                            primary = false,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    if (focusTotal > 0) {
+                        Text(
+                            "Today: ${focusTotal}m focus logged",
+                            color = SystemSuccess,
+                            fontFamily = JetBrainsMono,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
                 }
+            }
 
-                Column(
-                    Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SystemSectionHeader(tag = "STEPS", accent = SystemPrimary)
-                            BracketLabel(
-                                text = if (todaySteps != null) "LOGGED" else "IDLE",
-                                color = if (todaySteps != null) SystemSuccess else colors.onSurfaceVariant,
-                            )
-                            OutlinedTextField(steps, { steps = it }, label = { Text("Steps") }, modifier = Modifier.fillMaxWidth())
-                            SystemActionButton(
-                                label = "LOG STEPS",
-                                onClick = {
-                                    scope.launch {
-                                        EntryValidation.requirePositiveFloat(steps, "steps")?.let {
-                                            onMessage(it)
-                                            return@launch
-                                        }
-                                        val value = steps.trim().toFloat()
-                                        container.metricIngest.ingest("STEPS", value)
-                                        steps = ""
-                                        onMessage("Steps logged")
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                primary = false,
-                            )
-                            todaySteps?.let {
-                                Text(
-                                    "Latest: ${it.value.toInt()} steps",
-                                    fontFamily = JetBrainsMono,
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
+            GlassSurface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onGloballyPositioned { metricsY = it.positionInParent().y.toInt() },
+                level = GlassLevel.Level1,
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SystemSectionHeader(tag = "STEPS", accent = SystemPrimary)
+                    BracketLabel(
+                        text = if (todaySteps != null) "LOGGED" else "IDLE",
+                        color = if (todaySteps != null) SystemSuccess else colors.onSurfaceVariant,
+                    )
+                    OutlinedTextField(steps, { steps = it }, label = { Text("Steps") }, modifier = Modifier.fillMaxWidth())
+                    SystemActionButton(
+                        label = "LOG STEPS",
+                        onClick = {
+                            scope.launch {
+                                EntryValidation.requirePositiveFloat(steps, "steps")?.let {
+                                    onMessage(it)
+                                    return@launch
+                                }
+                                val value = steps.trim().toFloat()
+                                vm.ingestMetric("STEPS", value)
+                                steps = ""
+                                onMessage("Steps logged")
                             }
-                        }
-                    }
-
-                    GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SystemSectionHeader(tag = "WEIGHT", accent = SystemPrimary)
-                            BracketLabel(
-                                text = if (latestWeight != null) "LOGGED" else "IDLE",
-                                color = if (latestWeight != null) SystemSuccess else colors.onSurfaceVariant,
-                            )
-                            OutlinedTextField(
-                                weight,
-                                { weight = it },
-                                label = { Text("Weight (kg)") },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            SystemActionButton(
-                                label = "LOG WEIGHT",
-                                onClick = {
-                                    scope.launch {
-                                        EntryValidation.requirePositiveFloat(weight, "weight")?.let {
-                                            onMessage(it)
-                                            return@launch
-                                        }
-                                        val value = weight.trim().toFloat()
-                                        container.metricIngest.ingest("WEIGHT", value)
-                                        weight = ""
-                                        onMessage("Weight logged")
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                primary = false,
-                            )
-                            latestWeight?.let {
-                                Text(
-                                    "Latest: ${it.value} kg",
-                                    fontFamily = JetBrainsMono,
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                        }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        primary = false,
+                    )
+                    todaySteps?.let {
+                        Text(
+                            "Latest: ${it.value.toInt()} steps",
+                            fontFamily = JetBrainsMono,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
                 }
             }
 
             GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SystemSectionHeader(tag = "WEIGHT", accent = SystemPrimary)
+                    BracketLabel(
+                        text = if (latestWeight != null) "LOGGED" else "IDLE",
+                        color = if (latestWeight != null) SystemSuccess else colors.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        weight,
+                        { weight = it },
+                        label = { Text("Weight (kg)") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    SystemActionButton(
+                        label = "LOG WEIGHT",
+                        onClick = {
+                            scope.launch {
+                                EntryValidation.requirePositiveFloat(weight, "weight")?.let {
+                                    onMessage(it)
+                                    return@launch
+                                }
+                                val value = weight.trim().toFloat()
+                                vm.ingestMetric("WEIGHT", value)
+                                weight = ""
+                                onMessage("Weight logged")
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        primary = false,
+                    )
+                    latestWeight?.let {
+                        Text(
+                            "Latest: ${it.value} kg",
+                            fontFamily = JetBrainsMono,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+
+            GlassSurface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onGloballyPositioned { journalY = it.positionInParent().y.toInt() },
+                level = GlassLevel.Level1,
+            ) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     SystemSectionHeader(tag = "JOURNAL", accent = SystemSecondary)
                     BracketLabel(
@@ -327,8 +425,8 @@ fun ModulesScreen(
                                     onMessage(it)
                                     return@launch
                                 }
-                                container.modules.saveJournal(journal.trim())
-                                onMessage("Journal saved · +10 XP")
+                                vm.saveJournal(journal.trim())
+                                onMessage(SystemMessages.JOURNAL_SAVED_FEEDBACK)
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -336,77 +434,62 @@ fun ModulesScreen(
                 }
             }
 
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                if (modules.career) {
-                    GlassSurface(modifier = Modifier.weight(1f), level = GlassLevel.Level1) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SystemSectionHeader(tag = "SKILLS", accent = SystemPrimary)
-                            SkillsSection(skills = skills)
-                        }
+            if (modules.career) {
+                GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SystemSectionHeader(tag = "SKILLS", accent = SystemPrimary)
+                        SkillsSection(skills = skills)
                     }
                 }
+            }
 
-                GlassSurface(modifier = Modifier.weight(1f), level = GlassLevel.Level1) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SystemSectionHeader(tag = "BOSS QUESTS", accent = SystemTertiary)
-                        BracketLabel(
-                            text = if (activeBosses.isEmpty()) "IDLE" else "ACTIVE",
-                            color = if (activeBosses.isEmpty()) colors.onSurfaceVariant else SystemTertiary,
-                        )
-                        OutlinedTextField(
-                            value = bossTitle,
-                            onValueChange = { bossTitle = it },
-                            label = { Text("New boss") },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        SystemActionButton(
-                            label = "CREATE BOSS",
-                            onClick = {
-                                scope.launch {
-                                    if (bossTitle.isBlank()) {
-                                        onMessage("Boss needs a title")
-                                        return@launch
-                                    }
-                                    container.modules.createBoss(bossTitle, "Major objective", 200)
-                                    bossTitle = ""
-                                    onMessage("Boss created")
+            GlassSurface(modifier = Modifier.fillMaxWidth(), level = GlassLevel.Level1) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SystemSectionHeader(tag = "BOSS QUESTS", accent = SystemTertiary)
+                    BracketLabel(
+                        text = if (activeBosses.isEmpty()) "IDLE" else "ACTIVE",
+                        color = if (activeBosses.isEmpty()) colors.onSurfaceVariant else SystemTertiary,
+                    )
+                    OutlinedTextField(
+                        value = bossTitle,
+                        onValueChange = { bossTitle = it },
+                        label = { Text("New boss") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    SystemActionButton(
+                        label = "CREATE BOSS",
+                        onClick = {
+                            scope.launch {
+                                if (bossTitle.isBlank()) {
+                                    onMessage("Boss needs a title")
+                                    return@launch
                                 }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            primary = false,
+                                vm.createBoss(bossTitle, "Major objective", 200)
+                                bossTitle = ""
+                                onMessage("Boss created")
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        primary = false,
+                    )
+                    if (activeBosses.isEmpty()) {
+                        SystemIdleEmpty(
+                            title = "No active boss",
+                            subtitle = "Create a boss quest to track a major objective.",
                         )
-                        if (activeBosses.isEmpty()) {
-                            SystemIdleEmpty(
-                                title = "No active boss",
-                                subtitle = "Create a boss quest to track a major objective.",
-                            )
-                        } else {
-                            activeBosses.forEach { b ->
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text(b.title, fontWeight = FontWeight.Bold)
-                                    CyberProgressBar(
-                                        progress = (b.currentValue / b.targetValue.coerceAtLeast(1f)).coerceIn(0f, 1f),
-                                        height = 6.dp,
-                                    )
-                                    Text(
-                                        "${b.currentValue.toInt()}/${b.targetValue.toInt()}",
-                                        fontFamily = JetBrainsMono,
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
-                                    SystemActionButton(
-                                        label = "+25% PROGRESS",
-                                        onClick = {
-                                            scope.launch {
-                                                container.modules.addBossProgress(25f)
-                                                onMessage("Boss progress +25%")
-                                            }
-                                        },
-                                        modifier = Modifier.fillMaxWidth(),
-                                    )
-                                }
+                    } else {
+                        activeBosses.forEach { b ->
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(b.title, fontWeight = FontWeight.Bold)
+                                CyberProgressBar(
+                                    progress = (b.currentValue / b.targetValue.coerceAtLeast(1f)).coerceIn(0f, 1f),
+                                    height = 6.dp,
+                                )
+                                Text(
+                                    "${b.currentValue.toInt()}/${b.targetValue.toInt()}",
+                                    fontFamily = JetBrainsMono,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
                             }
                         }
                     }
@@ -424,7 +507,7 @@ fun ModulesScreen(
                             RoutineChip(
                                 label = kind.lowercase().replaceFirstChar { it.uppercase() },
                                 logged = kind in loggedRoutineKinds,
-                                onClick = { scope.launch { container.modules.logRoutine(kind) } },
+                                onClick = { scope.launch { vm.logRoutine(kind) } },
                             )
                         }
                     }
@@ -444,7 +527,7 @@ fun ModulesScreen(
             if (modules.career) {
                 CareerSection(careerNodes) { id ->
                     scope.launch {
-                        container.modules.advanceCareerNode(id)
+                        vm.advanceCareerNode(id)
                         onMessage("Node advanced · +50 XP")
                     }
                 }
@@ -467,15 +550,15 @@ fun ModulesScreen(
                                 return@launch
                             }
                             val difficulty = dsaDifficulty.ifBlank { "MEDIUM" }
-                            container.modules.addDsaProblem(dsaTitle.trim(), difficulty, dsaTopic.trim())
+                            vm.addDsaProblem(dsaTitle.trim(), difficulty, dsaTopic.trim())
                             dsaTitle = ""
                             dsaTopic = ""
                             onMessage("Problem added")
                         }
                     },
-                    onAttempt = { scope.launch { container.modules.markAttempted(it); onMessage("Attempted") } },
-                    onSolve = { scope.launch { container.modules.solveDsa(it); onMessage("Solved") } },
-                    onMaster = { scope.launch { container.modules.masterDsa(it); onMessage("Mastered") } },
+                    onAttempt = { scope.launch { vm.markAttempted(it); onMessage("Attempted") } },
+                    onSolve = { scope.launch { vm.solveDsa(it); onMessage("Solved") } },
+                    onMaster = { scope.launch { vm.masterDsa(it); onMessage("Mastered") } },
                 )
             }
 

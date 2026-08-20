@@ -22,17 +22,18 @@ class BossProgressHandler(
         scope.launch {
             eventBus.events.collect { event ->
                 when (event) {
-                    is DomainEvent.QuestCompleted -> onQuestCompleted(event)
-                    is DomainEvent.QuestUndone -> onQuestUndone(event)
+                    is DomainEvent.QuestCompleted -> Unit // PostQuestCompletionCoordinator
+                    is DomainEvent.QuestUndone -> Unit // PostQuestCompletionCoordinator
                     else -> Unit
                 }
             }
         }
     }
 
-    private suspend fun onQuestCompleted(event: DomainEvent.QuestCompleted) {
+    /** Canonical quest-driven boss progress. Idempotent for already-completed boss quest flags. */
+    suspend fun applyQuestCompleted(templateId: Long) {
         val boss = db.moduleDao().getActiveBoss() ?: return
-        val template = db.questDao().getTemplateById(event.templateId) ?: return
+        val template = db.questDao().getTemplateById(templateId) ?: return
         val modules = progression.currentModules()
         if (!ModuleScope.allowsQuestTemplate(template.priorityTags, modules)) return
         val bossQuests = db.moduleDao().getBossQuests(boss.id)
@@ -40,35 +41,11 @@ class BossProgressHandler(
             ?: return
 
         db.moduleDao().updateBossQuest(matching.copy(completed = true))
-
-        val updatedQuests = db.moduleDao().getBossQuests(boss.id)
-        val progress = BossProgressLogic.weightedProgress(
-            updatedQuests.map { BossProgressLogic.QuestWeight(it.completed, it.weight) },
-        )
-        val newValue = BossProgressLogic.bossCurrentValue(progress, boss.targetValue)
-        val cleared = BossProgressLogic.isCleared(newValue, boss.targetValue)
-
-        db.moduleDao().updateBoss(
-            boss.copy(
-                currentValue = newValue.coerceAtMost(boss.targetValue),
-                status = if (cleared) "CLEARED" else "ACTIVE",
-            ),
-        )
-        eventBus.publish(DomainEvent.BossProgressUpdated(boss.id, progress))
-        if (cleared) {
-            progression.award(
-                sourceType = "BOSS",
-                sourceId = "boss_${boss.id}",
-                amount = boss.xpReward,
-                attrs = mapOf(AttributeCode.DISC to (boss.xpReward / 2).coerceAtLeast(1)),
-                applyDailyCap = true,
-            )
-            eventBus.publish(DomainEvent.BossCompleted(boss.id, boss.xpReward))
-        }
+        recalculateAndPersist(boss)
     }
 
-    private suspend fun onQuestUndone(event: DomainEvent.QuestUndone) {
-        val instance = db.questDao().getInstance(event.instanceId) ?: return
+    suspend fun applyQuestUndone(instanceId: Long) {
+        val instance = db.questDao().getInstance(instanceId) ?: return
         val template = db.questDao().getTemplateById(instance.templateId) ?: return
         val modules = progression.currentModules()
         if (!ModuleScope.allowsQuestTemplate(template.priorityTags, modules)) return
@@ -89,23 +66,9 @@ class BossProgressHandler(
 
         val wasCleared = boss.status == "CLEARED"
         db.moduleDao().updateBossQuest(bossQuest.copy(completed = false))
+        val updated = recalculateAndPersist(boss)
 
-        val updatedQuests = db.moduleDao().getBossQuests(boss.id)
-        val progress = BossProgressLogic.weightedProgress(
-            updatedQuests.map { BossProgressLogic.QuestWeight(it.completed, it.weight) },
-        )
-        val newValue = BossProgressLogic.bossCurrentValue(progress, boss.targetValue)
-        val cleared = BossProgressLogic.isCleared(newValue, boss.targetValue)
-
-        db.moduleDao().updateBoss(
-            boss.copy(
-                currentValue = newValue.coerceAtMost(boss.targetValue),
-                status = if (cleared) "CLEARED" else "ACTIVE",
-            ),
-        )
-        eventBus.publish(DomainEvent.BossProgressUpdated(boss.id, progress))
-
-        if (wasCleared && !cleared) {
+        if (wasCleared && updated.status != "CLEARED") {
             progression.reverse(
                 originalSourceType = "BOSS",
                 originalSourceId = "boss_${boss.id}",
@@ -113,5 +76,31 @@ class BossProgressHandler(
                 reverseSourceId = "UNDO_BOSS_${boss.id}",
             )
         }
+    }
+
+    private suspend fun recalculateAndPersist(boss: BossEntity): BossEntity {
+        val updatedQuests = db.moduleDao().getBossQuests(boss.id)
+        val progress = BossProgressLogic.weightedProgress(
+            updatedQuests.map { BossProgressLogic.QuestWeight(it.completed, it.weight) },
+        )
+        val newValue = BossProgressLogic.bossCurrentValue(progress, boss.targetValue)
+        val cleared = BossProgressLogic.isCleared(newValue, boss.targetValue)
+        val updated = boss.copy(
+            currentValue = newValue.coerceAtMost(boss.targetValue),
+            status = if (cleared) "CLEARED" else "ACTIVE",
+        )
+        db.moduleDao().updateBoss(updated)
+        eventBus.publish(DomainEvent.BossProgressUpdated(boss.id, progress))
+        if (cleared && boss.status != "CLEARED") {
+            progression.award(
+                sourceType = "BOSS",
+                sourceId = "boss_${boss.id}",
+                amount = boss.xpReward,
+                attrs = mapOf(AttributeCode.DISC to (boss.xpReward / 2).coerceAtLeast(1)),
+                applyDailyCap = true,
+            )
+            eventBus.publish(DomainEvent.BossCompleted(boss.id, boss.xpReward))
+        }
+        return updated
     }
 }

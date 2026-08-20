@@ -93,4 +93,53 @@ class QuestVerificationWorkoutTest {
         service.tryAutoComplete(date)
         assertEquals(QuestStatus.COMPLETED.name, db.questDao().getInstance(questId)!!.status)
     }
+
+    @Test
+    fun r_workoutDaily_uncompletesWhenSetsRemoved() = runTest {
+        db.playerDao().upsertProfile(
+            PlayerProfileEntity(name = "Test", timezone = "UTC", onboardingDone = true),
+        )
+        db.playerDao().upsertAttributes(
+            AttributeCode.entries.map { AttributeStatEntity(it.name) },
+        )
+        val templateId = db.questDao().upsertTemplate(
+            QuestTemplateEntity(
+                key = "workout_daily",
+                type = "DAILY",
+                title = "Workout",
+                baseXp = 50,
+                attributeRewardsJson = """{"STR":30}""",
+            ),
+        )
+        val questId = db.questDao().insertInstance(
+            QuestInstanceEntity(
+                templateId = templateId,
+                scheduledDate = date,
+                status = QuestStatus.AVAILABLE.name,
+                title = "Workout",
+                type = "DAILY",
+                baseXp = 50,
+                attributeRewardsJson = """{"STR":30}""",
+                verificationType = VerificationType.MANUAL.name,
+            ),
+        )
+        db.moduleDao().upsertWorkoutLog(
+            WorkoutLogEntity(
+                date = date,
+                exercises = listOf(
+                    LoggedExerciseEntity(
+                        name = "Squat",
+                        sets = listOf(LoggedSetEntity(100f, 5)),
+                    ),
+                ),
+            ),
+        )
+        service.tryAutoComplete(date)
+        assertEquals(QuestStatus.COMPLETED.name, db.questDao().getInstance(questId)!!.status)
+
+        db.moduleDao().upsertWorkoutLog(WorkoutLogEntity(date = date, exercises = emptyList()))
+        clock.epochMs += 16 * 60_000L
+        service.tryAutoComplete(date)
+        assertEquals(QuestStatus.AVAILABLE.name, db.questDao().getInstance(questId)!!.status)
+    }
 }

@@ -5,7 +5,6 @@ import com.example.solo_levelling.core.event.DomainEvent
 import com.example.solo_levelling.core.event.EventBus
 import com.example.solo_levelling.core.time.AppClock
 import com.example.solo_levelling.data.db.JsonDatabase
-import com.example.solo_levelling.data.db.entity.QuestInstanceEntity
 import com.example.solo_levelling.data.db.entity.StreakStateEntity
 import com.example.solo_levelling.domain.logic.StreakLogic
 import com.example.solo_levelling.domain.model.QuestStatus
@@ -27,19 +26,22 @@ class StreakHandler(
 ) {
     private val dateFmt = DateTimeFormatter.ISO_LOCAL_DATE
 
+    /**
+     * EventBus no longer drives streak on QuestCompleted — [PostQuestCompletionCoordinator] owns that.
+     * Undo still listens so legacy event-only paths remain safe; coordinator also calls [applyQuestUndone].
+     */
     fun start() {
         scope.launch {
             eventBus.events.collect { event ->
                 when (event) {
-                    is DomainEvent.QuestCompleted -> onQuestCompleted()
-                    is DomainEvent.QuestUndone -> onQuestUndone()
+                    is DomainEvent.QuestUndone -> Unit // coordinated via PostQuestCompletionCoordinator
                     else -> Unit
                 }
             }
         }
     }
 
-    private suspend fun onQuestCompleted() {
+    suspend fun applyQuestCompleted() {
         val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID) ?: return
         val zone = runCatching { ZoneId.of(profile.timezone) }.getOrDefault(ZoneId.systemDefault())
         val today = clock.today(zone)
@@ -68,10 +70,7 @@ class StreakHandler(
         }
 
         val last = streak.lastCompletedDate?.let { LocalDate.parse(it, dateFmt) }
-        if (StreakLogic.isStreakBroken(last, today)) {
-            maybeSpawnRecovery(todayStr, recoveryUsed)
-            recoveryUsed = (db.playerDao().getStreak(SystemDefaults.PLAYER_ID)?.recoveryUsedThisWeek) ?: recoveryUsed
-        }
+        // Recovery Quest feature removed — streak break only publishes via DayBoundaryService.
 
         val newCurrent = StreakLogic.computeNewStreak(streak.current, last, today)
         val newBest = maxOf(streak.best, newCurrent)
@@ -87,7 +86,7 @@ class StreakHandler(
         eventBus.publish(DomainEvent.StreakUpdated(newCurrent, newBest))
     }
 
-    private suspend fun onQuestUndone() {
+    suspend fun applyQuestUndone() {
         val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID) ?: return
         val zone = runCatching { ZoneId.of(profile.timezone) }.getOrDefault(ZoneId.systemDefault())
         val today = clock.today(zone)
@@ -118,29 +117,5 @@ class StreakHandler(
             ),
         )
         eventBus.publish(DomainEvent.StreakUpdated(newCurrent, streak.best))
-    }
-
-    private suspend fun maybeSpawnRecovery(todayStr: String, recoveryUsed: Int) {
-        if (recoveryUsed >= SystemDefaults.WEEKLY_RECOVERY_LIMIT) return
-        val template = db.questDao().getTemplateByKey("recovery")
-        val instanceId = db.questDao().insertInstance(
-            QuestInstanceEntity(
-                templateId = template?.id ?: -1L,
-                scheduledDate = todayStr,
-                status = QuestStatus.AVAILABLE.name,
-                title = template?.title ?: "Recovery quest",
-                type = "RECOVERY",
-                baseXp = template?.baseXp ?: 15,
-                attributeRewardsJson = template?.attributeRewardsJson ?: """{"DISC":15}""",
-                verificationType = template?.verificationType ?: "MANUAL",
-                verificationTarget = template?.verificationTarget ?: 0f,
-                verificationUnit = template?.verificationUnit ?: "",
-            ),
-        )
-        if (instanceId > 0) {
-            eventBus.publish(DomainEvent.RecoveryQuestAvailable(instanceId, todayStr))
-        }
-        val streak = db.playerDao().getStreak(SystemDefaults.PLAYER_ID) ?: StreakStateEntity()
-        db.playerDao().upsertStreak(streak.copy(recoveryUsedThisWeek = recoveryUsed + 1))
     }
 }

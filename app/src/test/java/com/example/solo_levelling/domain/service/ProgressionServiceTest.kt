@@ -151,8 +151,34 @@ class ProgressionServiceTest {
     }
 
     @Test
-    fun n_award_noProfileReturnsNoProfile() = runTest {
-        val result = service.award("TEST", "no_profile", 10)
-        assertEquals(ProgressionService.AwardResult.NoProfile, result)
+    fun p_reverseThenReaward_sameSourceSucceeds() = runTest {
+        seedProfile()
+        val first = service.award("WORKOUT", "workout_2026-08-15", 40, mapOf(AttributeCode.STR to 30))
+        assertTrue(first is ProgressionService.AwardResult.Success)
+        val original = db.xpDao().findBySource("WORKOUT", "workout_2026-08-15")!!
+        assertTrue(
+            service.reverse(
+                originalSourceType = "WORKOUT",
+                originalSourceId = "workout_2026-08-15",
+                reverseSourceType = "WORKOUT_UNDO",
+                reverseSourceId = "UNDO_WORKOUT_${original.id}",
+                attrs = mapOf(AttributeCode.STR to 30),
+            ),
+        )
+        val second = service.award("WORKOUT", "workout_2026-08-15", 40, mapOf(AttributeCode.STR to 30))
+        assertTrue(second is ProgressionService.AwardResult.Success)
+        assertEquals(40, (second as ProgressionService.AwardResult.Success).awarded)
+        assertEquals(40, db.playerDao().getProfile(1)!!.totalXp)
+        assertEquals(30, db.playerDao().getAttributes().first { it.code == "STR" }.currentValue)
+    }
+
+    @Test
+    fun n_reverseTwice_isIdempotent() = runTest {
+        seedProfile()
+        service.award("TEST", "once", 20)
+        assertTrue(service.reverse("TEST", "once", "TEST_UNDO", "UNDO_1"))
+        assertEquals(false, service.reverse("TEST", "once", "TEST_UNDO", "UNDO_1"))
+        assertEquals(0, db.playerDao().getProfile(1)!!.totalXp)
+        assertEquals(2, db.xpDao().getAllLedger().size)
     }
 }

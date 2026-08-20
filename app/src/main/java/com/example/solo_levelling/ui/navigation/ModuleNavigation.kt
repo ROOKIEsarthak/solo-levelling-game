@@ -14,30 +14,46 @@ fun buildMainTabs(@Suppress("UNUSED_PARAMETER") modules: EnabledModules): List<A
     AppRoute.More,
 )
 
+/** Graph path without query strings or Compose argument templates. */
+fun routePath(route: String?): String {
+    if (route.isNullOrBlank()) return ""
+    return route.substringBefore('?').substringBefore("/{")
+}
+
+private fun pathMatches(path: String, base: String): Boolean =
+    path == base || path.startsWith("$base/")
+
 /** Returns a redirect target when [route] is a module tab that is currently disabled. */
-fun redirectForDisabledModuleRoute(route: String?, modules: EnabledModules): AppRoute? = when (route) {
-    AppRoute.Career.route -> if (!modules.career) AppRoute.Dashboard else null
-    AppRoute.Fitness.route -> if (!modules.workout) AppRoute.Dashboard else null
-    AppRoute.Nutrition.route -> if (!modules.diet) AppRoute.Dashboard else null
-    else -> null
+fun redirectForDisabledModuleRoute(route: String?, modules: EnabledModules): AppRoute? {
+    val path = routePath(route)
+    return when {
+        pathMatches(path, AppRoute.Career.route) -> if (!modules.career) AppRoute.Dashboard else null
+        pathMatches(path, AppRoute.Fitness.route) -> if (!modules.workout) AppRoute.Dashboard else null
+        pathMatches(path, AppRoute.Nutrition.route) -> if (!modules.diet) AppRoute.Dashboard else null
+        pathMatches(path, "module_setup") -> null
+        else -> null
+    }
 }
 
 /** Whether the bottom/rail chrome should remain visible for this route. */
-fun showBottomBarForRoute(route: String?): Boolean = when (route) {
-    AppRoute.Dashboard.route,
-    AppRoute.Quests.route,
-    AppRoute.Analytics.route,
-    AppRoute.Character.route,
-    AppRoute.More.route,
-    AppRoute.History.route,
-    AppRoute.Achievements.route,
-    AppRoute.Career.route,
-    AppRoute.Fitness.route,
-    AppRoute.Nutrition.route,
-    AppRoute.Modules.route,
-    AppRoute.Settings.route,
-    -> true
-    else -> false
+fun showBottomBarForRoute(route: String?): Boolean {
+    val path = routePath(route)
+    return when {
+        pathMatches(path, "module_setup") -> false
+        path == AppRoute.Dashboard.route -> true
+        path == AppRoute.Quests.route -> true
+        path == AppRoute.Analytics.route ||
+            pathMatches(path, AppRoute.History.route) ||
+            pathMatches(path, AppRoute.Achievements.route) -> true
+        path == AppRoute.Character.route -> true
+        path == AppRoute.More.route ||
+            pathMatches(path, AppRoute.Settings.route) ||
+            pathMatches(path, AppRoute.Modules.route) ||
+            pathMatches(path, AppRoute.Career.route) ||
+            pathMatches(path, AppRoute.Fitness.route) ||
+            pathMatches(path, AppRoute.Nutrition.route) -> true
+        else -> false
+    }
 }
 
 /** Compact bottom-nav labels — keep short so Material3 bar items do not wrap. */
@@ -54,19 +70,24 @@ fun sovereignTabLabel(route: AppRoute): String = when (route) {
 const val MAX_SOVEREIGN_TAB_LABEL_LENGTH = 8
 
 /** Which primary tab appears selected for a (possibly secondary) route. */
-fun selectedPrimaryRoute(route: String?): String = when (route) {
-    AppRoute.Dashboard.route -> AppRoute.Dashboard.route
-    AppRoute.Quests.route -> AppRoute.Quests.route
-    AppRoute.Analytics.route, AppRoute.History.route, AppRoute.Achievements.route -> AppRoute.Analytics.route
-    AppRoute.Character.route -> AppRoute.Character.route
-    AppRoute.More.route,
-    AppRoute.Settings.route,
-    AppRoute.Modules.route,
-    AppRoute.Career.route,
-    AppRoute.Fitness.route,
-    AppRoute.Nutrition.route,
-    -> AppRoute.More.route
-    else -> route.orEmpty()
+fun selectedPrimaryRoute(route: String?): String {
+    val path = routePath(route)
+    return when {
+        path == AppRoute.Dashboard.route -> AppRoute.Dashboard.route
+        path == AppRoute.Quests.route -> AppRoute.Quests.route
+        path == AppRoute.Analytics.route ||
+            pathMatches(path, AppRoute.History.route) ||
+            pathMatches(path, AppRoute.Achievements.route) -> AppRoute.Analytics.route
+        path == AppRoute.Character.route -> AppRoute.Character.route
+        path == AppRoute.More.route ||
+            pathMatches(path, AppRoute.Settings.route) ||
+            pathMatches(path, "module_setup") ||
+            pathMatches(path, AppRoute.Modules.route) ||
+            pathMatches(path, AppRoute.Career.route) ||
+            pathMatches(path, AppRoute.Fitness.route) ||
+            pathMatches(path, AppRoute.Nutrition.route) -> AppRoute.More.route
+        else -> path
+    }
 }
 
 /**

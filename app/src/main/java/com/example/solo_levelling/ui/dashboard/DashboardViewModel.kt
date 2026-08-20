@@ -7,6 +7,7 @@ import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.core.config.SystemDefaults
 import com.example.solo_levelling.data.db.entity.AttributeStatEntity
 import com.example.solo_levelling.data.db.entity.BossEntity
+import com.example.solo_levelling.data.db.entity.DietLogEntity
 import com.example.solo_levelling.data.db.entity.NutritionLogEntity
 import com.example.solo_levelling.data.db.entity.PlayerAchievementEntity
 import com.example.solo_levelling.data.db.entity.PlayerProfileEntity
@@ -15,14 +16,15 @@ import com.example.solo_levelling.data.db.entity.SeasonEntity
 import com.example.solo_levelling.data.db.entity.StreakStateEntity
 import com.example.solo_levelling.data.db.entity.WorkoutLogEntity
 import com.example.solo_levelling.data.db.entity.WorkoutRoutineEntity
+import com.example.solo_levelling.domain.logic.MealCompletionPolicy
+import com.example.solo_levelling.domain.logic.MealProgressState
 import com.example.solo_levelling.domain.service.AdaptiveSuggestion
 import com.example.solo_levelling.domain.service.CareerHubLogic
-import com.example.solo_levelling.domain.service.NextAction
 import com.example.solo_levelling.domain.service.NextUnlock
 import com.example.solo_levelling.domain.service.EnabledModules
 import com.example.solo_levelling.domain.service.ModuleFlags
 import com.example.solo_levelling.domain.service.ModuleScope
-import com.example.solo_levelling.domain.service.PriorityEngine
+import com.example.solo_levelling.domain.service.QuestCompletionService
 import com.example.solo_levelling.domain.model.QuestStatus
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -35,8 +37,15 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
+
+data class DashboardClockUi(
+    val dateLabel: String = "",
+    val hour: Int = 12,
+)
 
 data class ProgressSnapshot(
     val dsaPct: Int,
@@ -57,6 +66,19 @@ class DashboardViewModel(
     val profile: StateFlow<PlayerProfileEntity?> =
         container.db.playerDao().observeProfile(SystemDefaults.PLAYER_ID)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val clockUi: StateFlow<DashboardClockUi> =
+        profile.map { p ->
+            val zone = runCatching { ZoneId.of(p?.timezone ?: ZoneId.systemDefault().id) }
+                .getOrDefault(ZoneId.systemDefault())
+            val zoned = Instant.ofEpochMilli(container.clock.nowEpochMs()).atZone(zone)
+            DashboardClockUi(
+                dateLabel = zoned.toLocalDate().format(
+                    DateTimeFormatter.ofPattern("EEEE · MMMM d", Locale.getDefault()),
+                ),
+                hour = zoned.hour,
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardClockUi())
 
     val streak: StateFlow<StreakStateEntity?> =
         container.db.playerDao().observeStreak(SystemDefaults.PLAYER_ID)
@@ -210,6 +232,26 @@ class DashboardViewModel(
             container.db.moduleDao().observeNutrition(today)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    val dietLogToday: StateFlow<DietLogEntity?> =
+        profile.flatMapLatest { p ->
+            val zone = runCatching { ZoneId.of(p?.timezone ?: ZoneId.systemDefault().id) }
+                .getOrDefault(ZoneId.systemDefault())
+            val today = container.clock.today(zone).format(dateFmt)
+            container.db.moduleDao().observeDietLog(today)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val mealProgress: StateFlow<MealProgressState> =
+        dietLogToday.map { log ->
+            MealCompletionPolicy.mealProgressState(
+                log = log,
+                mealTotals = { meal -> container.modules.mealTotals(meal) },
+            )
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            MealCompletionPolicy.mealProgressState(null),
+        )
+
     val calorieTarget: StateFlow<Int> =
         container.db.configDao().observe("calorie_target")
             .map { it?.value?.toIntOrNull() ?: 1800 }
@@ -262,77 +304,14 @@ class DashboardViewModel(
             log != null && log.isTrainingDayComplete()
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    val nextAction: StateFlow<NextAction?> =
-        combine(
-            dsaPct,
-            sdPct,
-            backendPct,
-            behavioralPct,
-            mandatoryAreas,
-            workoutDoneToday,
-            workoutPlannedToday,
-            nutritionToday,
-            calorieTarget,
-            proteinTarget,
-            todayQuests,
-            enabledModules,
-        ) { values ->
-            @Suppress("UNCHECKED_CAST")
-            val dsa = values[0] as Int
-            @Suppress("UNCHECKED_CAST")
-            val sd = values[1] as Int
-            @Suppress("UNCHECKED_CAST")
-            val backend = values[2] as Int
-            @Suppress("UNCHECKED_CAST")
-            val behavioral = values[3] as Int
-            @Suppress("UNCHECKED_CAST")
-            val mandatory = values[4] as List<String>
-            @Suppress("UNCHECKED_CAST")
-            val workoutDone = values[5] as Boolean
-            @Suppress("UNCHECKED_CAST")
-            val workoutPlanned = values[6] as Boolean
-            @Suppress("UNCHECKED_CAST")
-            val nutrition = values[7] as NutritionLogEntity?
-            @Suppress("UNCHECKED_CAST")
-            val calTarget = values[8] as Int
-            @Suppress("UNCHECKED_CAST")
-            val protTarget = values[9] as Int
-            @Suppress("UNCHECKED_CAST")
-            val quests = values[10] as List<QuestInstanceEntity>
-            @Suppress("UNCHECKED_CAST")
-            val modules = values[11] as EnabledModules
-
-            val dietCalPct = if (calTarget <= 0) 0 else {
-                ((nutrition?.calories ?: 0).toFloat() / calTarget * 100f).toInt()
-            }
-            val proteinPct = if (protTarget <= 0) 0 else {
-                ((nutrition?.protein ?: 0).toFloat() / protTarget * 100f).toInt()
-            }
-            val openQuests = quests.count { it.status != "COMPLETED" }
-
-            PriorityEngine.nextAction(
-                dsaPct = dsa,
-                sdPct = sd,
-                backendPct = backend,
-                behavioralPct = behavioral,
-                mandatoryAreas = mandatory,
-                workoutDoneToday = workoutDone,
-                workoutPlannedToday = workoutPlanned,
-                dietCaloriePctOfTarget = dietCalPct,
-                proteinPctOfTarget = proteinPct,
-                openQuestsRemaining = openQuests,
-                modules = modules,
-            )
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
     val progressSnapshot: StateFlow<ProgressSnapshot> =
         combine(
             dsaPct,
             sdPct,
             workoutDoneToday,
-            nutritionToday,
-            calorieTarget,
+            mealProgress,
             streak,
+            enabledModules,
         ) { values ->
             @Suppress("UNCHECKED_CAST")
             val dsa = values[0] as Int
@@ -341,14 +320,16 @@ class DashboardViewModel(
             @Suppress("UNCHECKED_CAST")
             val workoutDone = values[2] as Boolean
             @Suppress("UNCHECKED_CAST")
-            val nutrition = values[3] as NutritionLogEntity?
+            val meals = values[3] as MealProgressState
             @Suppress("UNCHECKED_CAST")
-            val calTarget = values[4] as Int
+            val streakState = values[4] as StreakStateEntity?
             @Suppress("UNCHECKED_CAST")
-            val streakState = values[5] as StreakStateEntity?
+            val modules = values[5] as EnabledModules
 
-            val dietPct = if (calTarget <= 0) 0 else {
-                ((nutrition?.calories ?: 0).toFloat() / calTarget * 100f).toInt()
+            val dietPct = if (!modules.diet || meals.requiredCount <= 0) {
+                0
+            } else {
+                (meals.loggedCount.toFloat() / meals.requiredCount * 100f).toInt().coerceAtMost(100)
             }
 
             ProgressSnapshot(
@@ -385,6 +366,12 @@ class DashboardViewModel(
             refreshSuggestions.emit(Unit)
         }
     }
+
+    suspend fun complete(instanceId: Long): QuestCompletionService.Result =
+        container.questCompletion.complete(instanceId)
+
+    suspend fun undo(instanceId: Long): Boolean =
+        container.questCompletion.undo(instanceId)
 
     companion object {
         fun factory(container: AppContainer) = object : ViewModelProvider.Factory {

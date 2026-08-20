@@ -652,6 +652,20 @@ class JsonDatabase(private val rootDir: File) {
             }
         }
 
+        override suspend fun getAllInstances(): List<QuestInstanceEntity> = withWriteLock {
+            questInstances.sortedBy { it.id }
+        }
+
+        override suspend fun deleteInstance(id: Long) = withWriteLock {
+            val idx = questInstances.indexOfFirst { it.id == id }
+            if (idx >= 0) {
+                questInstances.removeAt(idx)
+                io.deleteTask(id)
+                persistProgress()
+                instancesFlow.value = questInstances.sortedBy { it.id }
+            }
+        }
+
         override suspend fun countCompletedAll(): Int = withWriteLock {
             questInstances.count { it.status == "COMPLETED" }
         }
@@ -1163,11 +1177,17 @@ class JsonDatabase(private val rootDir: File) {
         }
 
         override suspend fun countWorkoutsInRange(startDate: String, endDate: String): Int = withWriteLock {
-            workoutLogs.values.count { it.date >= startDate && it.date <= endDate }
+            workoutLogs.values.count {
+                it.date >= startDate && it.date <= endDate && it.isTrainingDayComplete()
+            }
         }
 
         override suspend fun countWorkoutDaysInRange(startDate: String, endDate: String): Int = withWriteLock {
-            workoutLogs.values.filter { it.date >= startDate && it.date <= endDate }.map { it.date }.distinct().size
+            workoutLogs.values
+                .filter { it.date >= startDate && it.date <= endDate && it.isTrainingDayComplete() }
+                .map { it.date }
+                .distinct()
+                .size
         }
 
         override suspend fun countDsaSolvedInRange(startMs: Long, endMs: Long): Int = withWriteLock {
@@ -1215,10 +1235,9 @@ class JsonDatabase(private val rootDir: File) {
         override suspend fun countDsaSolvedOnDate(dayStartMs: Long, dayEndMs: Long): Int = withWriteLock {
             dsa.count {
                 it.status in listOf("SOLVED", "MASTERED") &&
-                    (
-                        (it.solvedAtEpochMs != null && it.solvedAtEpochMs >= dayStartMs && it.solvedAtEpochMs < dayEndMs) ||
-                            it.solvedAtEpochMs == null
-                        )
+                    it.solvedAtEpochMs != null &&
+                    it.solvedAtEpochMs >= dayStartMs &&
+                    it.solvedAtEpochMs < dayEndMs
             }
         }
 

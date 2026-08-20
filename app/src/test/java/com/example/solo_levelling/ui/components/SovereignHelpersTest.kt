@@ -324,4 +324,26 @@ class SovereignHelpersTest {
         assertEquals("Ready for the next level", xpToNextLabel(3000, 3000))
         assertEquals("Ready for the next level", xpToNextLabel(3500, 3000))
     }
+
+    @Test
+    fun p_questUndoAvailable_withinWindow() {
+        assertTrue(isQuestUndoAvailable("DAILY", "COMPLETED", 1_000L, 1_000L + 5 * 60_000L))
+        assertTrue(isQuestUndoAvailable("WEEKLY", "COMPLETED", 1_000L, 1_000L))
+        assertTrue(isQuestUndoAvailable("RECOVERY", "COMPLETED", 1_000L, 1_000L + 14 * 60_000L))
+    }
+
+    @Test
+    fun n_questUndoAvailable_hiddenForMilestoneOrActive() {
+        assertFalse(isQuestUndoAvailable("MILESTONE", "COMPLETED", 1_000L, 1_000L))
+        assertFalse(isQuestUndoAvailable("DAILY", "AVAILABLE", 1_000L, 1_000L))
+        assertFalse(isQuestUndoAvailable("DAILY", "COMPLETED", null, 1_000L))
+    }
+
+    @Test
+    fun e_questUndoAvailable_expiresAfterWindow() {
+        val completedAt = 1_000L
+        val afterWindow = completedAt + 15 * 60_000L + 1
+        assertFalse(isQuestUndoAvailable("DAILY", "COMPLETED", completedAt, afterWindow))
+        assertTrue(isQuestUndoAvailable("DAILY", "COMPLETED", completedAt, completedAt + 15 * 60_000L))
+    }
 }

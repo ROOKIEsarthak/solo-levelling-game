@@ -77,8 +77,35 @@ class SettingsScreenTest {
     }
 
     @Test
+    fun n_lastActiveModuleMessage_explainsConstraint() {
+        assertEquals("At least one module must remain active.", lastActiveModuleMessage())
+        assertEquals("Choose another module", lastActiveModuleAction())
+    }
+
+    @Test
+    fun p_pauseModuleCopy_preservesHistory() {
+        val body = pauseModuleBody("Fitness")
+        assertTrue(body.contains("history will remain saved"))
+        assertTrue(body.contains("quests or progression"))
+        assertEquals("Pause Fitness?", pauseModuleTitle("Fitness"))
+    }
+
+    @Test
     fun n_settingsCurrentSplitLines_missingDayShowsDash() {
         val lines = settingsCurrentSplitLines("ppl_ul", emptyMap())
         assertTrue(lines.all { it.endsWith("—") })
+    }
+
+    @Test
+    fun p_moduleChangesSummary_singleAndMultiple() {
+        assertEquals("Fitness is now active.", moduleChangesSummary(listOf("workout")))
+        assertEquals("Fitness and Career have been added.", moduleChangesSummary(listOf("workout", "career")))
+        assertEquals("Your system has been updated.", moduleChangesSummary(emptyList()))
+    }
+
+    @Test
+    fun p_moduleSetupQueueIntro_countsModules() {
+        assertEquals("Before the system can continue, we need a few details.", moduleSetupQueueIntro(1))
+        assertEquals("2 new modules need setup.", moduleSetupQueueIntro(2))
     }
 }

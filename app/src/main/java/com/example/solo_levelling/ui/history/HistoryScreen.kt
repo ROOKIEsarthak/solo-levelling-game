@@ -2,6 +2,7 @@ package com.example.solo_levelling.ui.history
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +51,7 @@ fun HistoryScreen(
     container: AppContainer,
     onOpenWorkout: () -> Unit,
     onOpenDiet: () -> Unit,
+    onReviewWorkout: (String) -> Unit = { onOpenWorkout() },
     showWorkout: Boolean = true,
     showDiet: Boolean = true,
 ) {
@@ -135,6 +137,7 @@ fun HistoryScreen(
                     AccentLogCard(
                         accent = SystemSecondary,
                         borderAccent = SystemSecondary.copy(alpha = 0.35f),
+                        modifier = Modifier.clickable(onClick = { onReviewWorkout(log.date) }),
                     ) {
                         LogEntryRow(
                             title = log.workoutName.ifBlank { "Workout" },

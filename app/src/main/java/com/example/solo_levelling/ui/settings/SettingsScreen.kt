@@ -32,9 +32,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.solo_levelling.AppContainer
 import com.example.solo_levelling.core.config.SystemDefaults
-import com.example.solo_levelling.data.db.entity.UserConfigEntity
 import com.example.solo_levelling.data.seed.WorkoutCatalog
 import com.example.solo_levelling.domain.service.EnabledModules
 import com.example.solo_levelling.domain.service.EntryValidation
@@ -53,11 +53,39 @@ import com.example.solo_levelling.ui.theme.SystemError
 import com.example.solo_levelling.ui.theme.SystemPrimary
 import com.example.solo_levelling.ui.theme.SystemTertiary
 import com.example.solo_levelling.ui.theme.SystemWarning
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 internal const val WIPE_CONFIRM_PHRASE = "CONFIRM_WIPE"
+
+internal fun lastActiveModuleMessage(): String =
+    "At least one module must remain active."
+
+internal fun lastActiveModuleAction(): String = "Choose another module"
+
+internal fun pauseModuleTitle(label: String): String = "Pause $label?"
+
+internal fun pauseModuleBody(label: String): String =
+    "Your ${label.lowercase()} history will remain saved. " +
+        "$label activity will no longer affect your current quests or progression until you enable it again."
+
+internal fun systemUpdatedMessage(): String = "Your system has been updated."
+
+internal fun moduleChangesSummary(added: List<String>): String {
+    val names = added.map { ModuleFlags.displayName(it) }
+    return when (names.size) {
+        0 -> systemUpdatedMessage()
+        1 -> "${names[0]} is now active."
+        2 -> "${names[0]} and ${names[1]} have been added."
+        else -> "${names.dropLast(1).joinToString(", ")} and ${names.last()} have been added."
+    }
+}
+
+internal fun moduleSetupQueueIntro(count: Int): String =
+    if (count <= 1) {
+        "Before the system can continue, we need a few details."
+    } else {
+        "$count new modules need setup."
+    }
 
 internal fun isWipeConfirmationValid(input: String): Boolean =
     input.trim().equals(WIPE_CONFIRM_PHRASE, ignoreCase = false)
@@ -86,11 +114,12 @@ fun SettingsScreen(
     container: AppContainer,
     onMessage: (String) -> Unit = {},
     onResetComplete: () -> Unit = {},
+    onBeginModuleSetup: (queue: List<String>, deferredDisables: List<String>) -> Unit = { _, _ -> },
+    onModuleChangesApplied: () -> Unit = {},
 ) {
+    val vm: SettingsViewModel = viewModel(factory = SettingsViewModel.factory(container))
     val profile by container.db.playerDao().observeProfile(SystemDefaults.PLAYER_ID)
         .collectAsStateWithLifecycle(initialValue = null)
-    val outbox by container.db.outboxDao().observeRecent(5)
-        .collectAsStateWithLifecycle(initialValue = emptyList())
     val calorieConfig by container.db.configDao().observe("calorie_target")
         .collectAsStateWithLifecycle(initialValue = null)
     val proteinConfig by container.db.configDao().observe("protein_target")
@@ -136,7 +165,10 @@ fun SettingsScreen(
     var showResetConfirm by remember { mutableStateOf(false) }
     var wipeConfirmInput by remember { mutableStateOf("") }
     var modules by remember { mutableStateOf(EnabledModules()) }
+    var draftModules by remember { mutableStateOf(EnabledModules()) }
+    var draftDirty by remember { mutableStateOf(false) }
     var pendingModuleDisable by remember { mutableStateOf<String?>(null) }
+    var showLastModuleDialog by remember { mutableStateOf(false) }
     var showEarlySplitDialog by remember { mutableStateOf(false) }
     var pendingSplitCsv by remember { mutableStateOf<String?>(null) }
     var weeksOnSplit by remember { mutableStateOf(0L) }
@@ -163,57 +195,55 @@ fun SettingsScreen(
         moduleDietConfig?.value,
         profile?.onboardingDone,
     ) {
-        modules = ModuleFlags.resolve(
+        val resolved = ModuleFlags.resolve(
             onboardingDone = profile?.onboardingDone == true,
             career = moduleCareerConfig?.value,
             workout = moduleWorkoutConfig?.value,
             diet = moduleDietConfig?.value,
         )
+        modules = resolved
+        if (!draftDirty) {
+            draftModules = resolved
+        }
     }
 
-    fun applyModuleToggle(module: String, enabled: Boolean) {
+    fun applyDraftToggle(module: String, enabled: Boolean) {
         if (enabled) {
-            val already = when (module) {
-                "career" -> modules.career
-                "workout" -> modules.workout
-                "diet" -> modules.diet
-                else -> return
-            }
-            if (already) return
-            val updated = when (module) {
-                "career" -> modules.withCareer(true)
-                "workout" -> modules.withWorkout(true)
-                "diet" -> modules.withDiet(true)
-                else -> return
-            }
-            scope.launch(Dispatchers.IO) {
-                container.onboarding.writeModuleFlags(updated)
-                withContext(Dispatchers.Main) {
-                    if (module == "workout") {
-                        onMessage("Workout enabled — configure split below")
-                    }
-                }
-            }
+            if (draftModules.isEnabled(module)) return
+            draftDirty = true
+            draftModules = draftModules.withModule(module, true)
             return
         }
-        val alreadyOff = when (module) {
-            "career" -> !modules.career
-            "workout" -> !modules.workout
-            "diet" -> !modules.diet
-            else -> return
-        }
-        if (alreadyOff) return
-        val updated = when (module) {
-            "career" -> modules.withCareer(false)
-            "workout" -> modules.withWorkout(false)
-            "diet" -> modules.withDiet(false)
-            else -> return
-        }
+        if (!draftModules.isEnabled(module)) return
+        val updated = draftModules.withModule(module, false)
         if (!updated.anyEnabled) {
-            onMessage("At least one module must stay enabled")
+            showLastModuleDialog = true
             return
         }
         pendingModuleDisable = module
+    }
+
+    fun applyModuleChanges() {
+        if (!draftModules.anyEnabled) {
+            showLastModuleDialog = true
+            return
+        }
+        if (draftModules == modules) return
+        scope.launch {
+            val result = vm.applyModuleChanges(draftModules)
+            if (result.blocked) {
+                showLastModuleDialog = true
+                return@launch
+            }
+            draftDirty = false
+            if (result.setupQueue.isNotEmpty()) {
+                onMessage(moduleSetupQueueIntro(result.setupQueue.size))
+                onBeginModuleSetup(result.setupQueue, result.deferredDisables)
+            } else {
+                onMessage(moduleChangesSummary(result.added))
+                onModuleChangesApplied()
+            }
+        }
     }
 
     LaunchedEffect(workoutSplitId, workoutSplitMapConfig?.value, workoutSplitConfig?.value) {
@@ -237,17 +267,13 @@ fun SettingsScreen(
     }
 
     pendingModuleDisable?.let { module ->
-        val label = when (module) {
-            "career" -> "Career"
-            "workout" -> "Workout"
-            else -> "Diet"
-        }
+        val label = ModuleFlags.displayName(module)
         AlertDialog(
             onDismissRequest = { pendingModuleDisable = null },
             containerColor = colors.surface.copy(alpha = 0.95f),
             title = {
                 Text(
-                    text = "[ DISABLE MODULE ]",
+                    text = pauseModuleTitle(label),
                     fontFamily = JetBrainsMono,
                     color = SystemWarning,
                     fontWeight = FontWeight.Bold,
@@ -255,9 +281,8 @@ fun SettingsScreen(
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Disable $label?")
                     Text(
-                        text = "History preserved. Past logs stay in your history; new quests for this module stop.",
+                        text = pauseModuleBody(label),
                         style = MaterialTheme.typography.bodySmall,
                         color = colors.onSurfaceVariant,
                     )
@@ -265,23 +290,40 @@ fun SettingsScreen(
             },
             confirmButton = {
                 SystemActionButton(
-                    label = "DISABLE",
+                    label = "PAUSE ${label.uppercase()}",
                     onClick = {
-                        val updated = when (module) {
-                            "career" -> modules.withCareer(false)
-                            "workout" -> modules.withWorkout(false)
-                            "diet" -> modules.withDiet(false)
-                            else -> modules
-                        }
                         pendingModuleDisable = null
-                        scope.launch(Dispatchers.IO) {
-                            container.onboarding.writeModuleFlags(updated)
-                        }
+                        draftDirty = true
+                        draftModules = draftModules.withModule(module, false)
                     },
                 )
             },
             dismissButton = {
-                GhostTextButton(label = "ABORT", onClick = { pendingModuleDisable = null })
+                GhostTextButton(
+                    label = "KEEP ${label.uppercase()}",
+                    onClick = { pendingModuleDisable = null },
+                )
+            },
+        )
+    }
+
+    if (showLastModuleDialog) {
+        AlertDialog(
+            onDismissRequest = { showLastModuleDialog = false },
+            containerColor = colors.surface.copy(alpha = 0.95f),
+            title = {
+                Text(
+                    text = lastActiveModuleMessage(),
+                    fontFamily = JetBrainsMono,
+                    color = SystemWarning,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+            confirmButton = {
+                SystemActionButton(
+                    label = lastActiveModuleAction().uppercase(),
+                    onClick = { showLastModuleDialog = false },
+                )
             },
         )
     }
@@ -322,7 +364,7 @@ fun SettingsScreen(
                         pendingSplitCsv = null
                         if (csv != null) {
                             scope.launch {
-                                val err = container.modules.applyWorkoutSplit(
+                                val err = vm.applyWorkoutSplit(
                                     workoutSplitId,
                                     csv,
                                     confirmEarlyChange = true,
@@ -412,12 +454,10 @@ fun SettingsScreen(
                     onClick = {
                         showResetConfirm = false
                         wipeConfirmInput = ""
-                        scope.launch(Dispatchers.IO) {
-                            container.onboarding.resetAllProgress()
-                            withContext(Dispatchers.Main) {
-                                onMessage("Progress reset")
-                                onResetComplete()
-                            }
+                        scope.launch {
+                            vm.resetAllProgress()
+                            onMessage("Progress reset")
+                            onResetComplete()
                         }
                     },
                     enabled = isWipeConfirmationValid(wipeConfirmInput),
@@ -594,7 +634,7 @@ fun SettingsScreen(
                         label = if (notificationsOn) "ON ✓" else "ON",
                         onClick = {
                             scope.launch {
-                                container.db.configDao().upsert(UserConfigEntity("notifications_enabled", "true"))
+                                vm.setNotificationsEnabled(true)
                             }
                         },
                         primary = false,
@@ -603,7 +643,7 @@ fun SettingsScreen(
                         label = if (!notificationsOn) "OFF ✓" else "OFF",
                         onClick = {
                             scope.launch {
-                                container.db.configDao().upsert(UserConfigEntity("notifications_enabled", "false"))
+                                vm.setNotificationsEnabled(false)
                             }
                         },
                         primary = false,
@@ -613,28 +653,41 @@ fun SettingsScreen(
 
             SettingsSection(tag = "ACTIVE MODULES", accent = SystemTertiary) {
                 Text(
-                    "Turn modules on or off. Disabling keeps your history.",
+                    "Turn modules on or off, then apply. Disabling keeps your history and stops new quests and XP from that module.",
                     color = colors.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
                 ModuleToggleRow(
                     label = "Career",
-                    enabled = modules.career,
-                    onEnable = { applyModuleToggle("career", true) },
-                    onDisable = { applyModuleToggle("career", false) },
+                    enabled = draftModules.career,
+                    onEnable = { applyDraftToggle(ModuleFlags.MODULE_CAREER, true) },
+                    onDisable = { applyDraftToggle(ModuleFlags.MODULE_CAREER, false) },
                 )
                 ModuleToggleRow(
-                    label = "Workout",
-                    enabled = modules.workout,
-                    onEnable = { applyModuleToggle("workout", true) },
-                    onDisable = { applyModuleToggle("workout", false) },
+                    label = "Fitness",
+                    enabled = draftModules.workout,
+                    onEnable = { applyDraftToggle(ModuleFlags.MODULE_WORKOUT, true) },
+                    onDisable = { applyDraftToggle(ModuleFlags.MODULE_WORKOUT, false) },
                 )
                 ModuleToggleRow(
-                    label = "Diet",
-                    enabled = modules.diet,
-                    onEnable = { applyModuleToggle("diet", true) },
-                    onDisable = { applyModuleToggle("diet", false) },
+                    label = "Nutrition",
+                    enabled = draftModules.diet,
+                    onEnable = { applyDraftToggle(ModuleFlags.MODULE_DIET, true) },
+                    onDisable = { applyDraftToggle(ModuleFlags.MODULE_DIET, false) },
                 )
+                if (draftModules != modules) {
+                    Text(
+                        "Unsaved module changes",
+                        color = SystemWarning,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = JetBrainsMono,
+                    )
+                    SystemActionButton(
+                        label = "APPLY MODULE CHANGES",
+                        onClick = { applyModuleChanges() },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
 
             SettingsSection(tag = "DANGER ZONE", accent = SystemError) {
@@ -657,38 +710,38 @@ fun SettingsScreen(
                                 onMessage(error)
                                 return@launch
                             }
-                            val p = container.db.playerDao().getProfile(SystemDefaults.PLAYER_ID) ?: return@launch
-                            container.db.playerDao().upsertProfile(p.copy(name = name.trim()))
+                            val p = vm.getProfile() ?: return@launch
+                            vm.upsertProfile(p.copy(name = name.trim()))
                             if (modules.diet) {
-                                container.db.configDao().upsert(UserConfigEntity("calorie_target", calorieTarget.trim()))
-                                container.db.configDao().upsert(UserConfigEntity("protein_target", proteinTarget.trim()))
-                                container.db.configDao().upsert(UserConfigEntity("carb_target", carbTarget.trim()))
-                                container.db.configDao().upsert(UserConfigEntity("fat_target", fatTarget.trim()))
-                                container.db.configDao().upsert(UserConfigEntity("step_target", stepTarget.trim()))
+                                vm.upsertConfig("calorie_target", calorieTarget.trim())
+                                vm.upsertConfig("protein_target", proteinTarget.trim())
+                                vm.upsertConfig("carb_target", carbTarget.trim())
+                                vm.upsertConfig("fat_target", fatTarget.trim())
+                                vm.upsertConfig("step_target", stepTarget.trim())
                             }
-                            container.db.configDao().upsert(UserConfigEntity("goal_title", goalTitle))
+                            vm.upsertConfig("goal_title", goalTitle)
                             if (modules.career && goalTitle.isNotBlank()) {
-                                container.db.configDao().upsert(UserConfigEntity("career_next_goal", goalTitle))
+                                vm.upsertConfig("career_next_goal", goalTitle)
                             }
                             val shouldApplySplit = modules.workout &&
                                 workoutSplitId.isNotBlank() &&
                                 (!splitLocked || changingSplit)
                             if (shouldApplySplit) {
-                                container.db.configDao().upsert(UserConfigEntity("schedule_days_csv", scheduleDays.trim()))
+                                vm.upsertConfig("schedule_days_csv", scheduleDays.trim())
                                 val mapError = WorkoutSplitLogic.buildRoutine(workoutSplitId, splitDayMap).error
                                 if (mapError != null) {
                                     onMessage(mapError)
                                     return@launch
                                 }
                                 val csv = WorkoutSplitLogic.encodeDayMap(splitDayMap)
-                                val splitError = container.modules.applyWorkoutSplit(
+                                val splitError = vm.applyWorkoutSplit(
                                     workoutSplitId,
                                     csv,
                                     confirmEarlyChange = false,
                                 )
                                 if (splitError == ModuleService.EARLY_SPLIT_CHANGE_REQUIRED) {
                                     pendingSplitCsv = csv
-                                    weeksOnSplit = container.modules.weeksOnCurrentSplit()
+                                    weeksOnSplit = vm.weeksOnCurrentSplit()
                                     showEarlySplitDialog = true
                                     return@launch
                                 }
@@ -709,8 +762,8 @@ fun SettingsScreen(
                     label = "REGENERATE QUESTS",
                     onClick = {
                         scope.launch {
-                            val p = container.db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
-                            container.questGeneration.generateForToday(p?.timezone ?: "Asia/Kolkata")
+                            val p = vm.getProfile()
+                            vm.regenerateQuests(p?.timezone ?: "Asia/Kolkata")
                             onMessage("Today's quests regenerated")
                         }
                     },
@@ -721,7 +774,7 @@ fun SettingsScreen(
                     label = "REBUILD XP",
                     onClick = {
                         scope.launch {
-                            val result = container.progression.rebuildFromLedger()
+                            val result = vm.rebuildXp()
                             rebuildResult = "XP ${result.oldTotal} → ${result.newTotal}, " +
                                 "Level ${result.oldLevel} → ${result.newLevel}, " +
                                 "Rank ${result.oldRank} → ${result.newRank}"
@@ -738,7 +791,7 @@ fun SettingsScreen(
                     label = "EXPORT DATA",
                     onClick = {
                         scope.launch {
-                            val json = container.analytics.exportJson()
+                            val json = vm.exportJson()
                             val share = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"
                                 putExtra(Intent.EXTRA_SUBJECT, "Solo Levelling export")
@@ -778,26 +831,10 @@ fun SettingsScreen(
                     color = colors.onSurfaceVariant,
                 )
                 Text(
-                    text = "Recovery/week: ${SystemDefaults.WEEKLY_RECOVERY_LIMIT}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.onSurfaceVariant,
-                )
-                Text(
                     text = "Streak grace days: ${SystemDefaults.STREAK_GRACE_DAYS}",
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.onSurfaceVariant,
                 )
-                if (outbox.isEmpty()) {
-                    Text("No recent outbox events", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
-                } else {
-                    outbox.forEach { entry ->
-                        Text(
-                            "${entry.eventType} @ ${entry.createdAtEpochMs}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant,
-                        )
-                    }
-                }
             }
         }
     }

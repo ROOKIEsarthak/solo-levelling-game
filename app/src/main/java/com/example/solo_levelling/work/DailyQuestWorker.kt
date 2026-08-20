@@ -8,9 +8,6 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.example.solo_levelling.appContainer
 import com.example.solo_levelling.core.config.SystemDefaults
-import com.example.solo_levelling.core.event.DomainEvent
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 
 class DailyQuestWorker(
@@ -22,12 +19,6 @@ class DailyQuestWorker(
         val profile = container.db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
         if (profile?.onboardingDone == true) {
             container.questGeneration.generateForToday(profile.timezone)
-            val zone = runCatching { ZoneId.of(profile.timezone) }
-                .getOrDefault(ZoneId.systemDefault())
-            val today = container.clock.today(zone)
-            val dateStr = today.format(DateTimeFormatter.ISO_LOCAL_DATE)
-            val count = container.db.questDao().getInstancesForDate(dateStr).size
-            container.eventBus.publish(DomainEvent.DailyQuestsReady(dateStr, count))
         }
         return Result.success()
     }

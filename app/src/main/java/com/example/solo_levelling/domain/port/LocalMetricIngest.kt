@@ -4,6 +4,8 @@ import com.example.solo_levelling.core.config.SystemDefaults
 import com.example.solo_levelling.core.time.AppClock
 import com.example.solo_levelling.data.db.JsonDatabase
 import com.example.solo_levelling.data.db.entity.MetricLogEntity
+import com.example.solo_levelling.domain.logic.ActivityDatePolicy
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -18,7 +20,10 @@ class LocalMetricIngest(
         val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
         val zone = runCatching { ZoneId.of(profile?.timezone ?: ZoneId.systemDefault().id) }
             .getOrDefault(ZoneId.systemDefault())
-        val dateStr = date ?: clock.today(zone).format(dateFmt)
+        val today = clock.today(zone)
+        val dateStr = date ?: today.format(dateFmt)
+        val parsed = runCatching { LocalDate.parse(dateStr, dateFmt) }.getOrNull() ?: return
+        if (!ActivityDatePolicy.canWriteRecord(today, parsed)) return
         val now = clock.nowEpochMs()
         db.moduleDao().insertMetric(
             MetricLogEntity(

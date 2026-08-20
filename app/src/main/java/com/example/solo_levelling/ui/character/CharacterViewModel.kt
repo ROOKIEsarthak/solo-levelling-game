@@ -25,7 +25,7 @@ class CharacterViewModel(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val attributes: StateFlow<List<AttributeStatEntity>> =
-        container.db.playerDao().observeAttributes()
+        container.activeProgression.observeActiveAttributes()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val streak: StateFlow<StreakStateEntity?> =
@@ -33,8 +33,7 @@ class CharacterViewModel(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val ledgerHistory: StateFlow<List<XpLedgerEntryEntity>> =
-        container.db.xpDao().observeLedger()
-            .map { entries -> entries.take(50) }
+        container.activeProgression.observeActiveLedger(limit = 50)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val currentRole: StateFlow<String> =

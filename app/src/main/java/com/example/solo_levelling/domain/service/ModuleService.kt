@@ -27,6 +27,8 @@ import com.example.solo_levelling.data.db.entity.WorkoutDayPlanEntity
 import com.example.solo_levelling.data.db.entity.WorkoutLogEntity
 import com.example.solo_levelling.data.db.entity.WorkoutRestKind
 import com.example.solo_levelling.data.db.entity.WorkoutRoutineEntity
+import com.example.solo_levelling.domain.logic.ActivityDatePolicy
+import com.example.solo_levelling.domain.logic.MealCompletionPolicy
 import com.example.solo_levelling.domain.model.AttributeCode
 import java.time.LocalDate
 import java.time.ZoneId
@@ -42,6 +44,7 @@ class ModuleService(
     private val verification: QuestVerificationService,
 ) {
     private val dateFmt = DateTimeFormatter.ISO_LOCAL_DATE
+    private val career = CareerModuleService(db, eventBus, clock, progression, verification)
 
     private suspend fun todayStr(): String {
         val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
@@ -50,122 +53,37 @@ class ModuleService(
         return clock.today(zone).format(dateFmt)
     }
 
-    suspend fun addDsaProblem(title: String, difficulty: String, topic: String) {
-        db.moduleDao().upsertDsa(
-            DsaProblemEntity(
-                title = title,
-                difficulty = difficulty,
-                topic = topic,
-                externalId = "${title.hashCode()}_${clock.nowEpochMs()}",
-                status = "NOT_STARTED",
-            ),
-        )
+    private suspend fun canWriteDate(date: String): Boolean {
+        val today = runCatching { LocalDate.parse(todayStr()) }.getOrNull() ?: return false
+        val parsed = runCatching { LocalDate.parse(date) }.getOrNull() ?: return false
+        return ActivityDatePolicy.canWriteRecord(today, parsed)
     }
 
-    suspend fun markAttempted(id: Long) {
-        val problem = db.moduleDao().getDsa(id) ?: return
-        if (problem.status != "NOT_STARTED") return
-        db.moduleDao().updateDsa(
-            problem.copy(status = "ATTEMPTED", attempts = problem.attempts + 1),
-        )
-    }
+    suspend fun addDsaProblem(title: String, difficulty: String, topic: String) =
+        career.addDsaProblem(title, difficulty, topic)
 
-    suspend fun solveDsa(id: Long) {
-        val problem = db.moduleDao().getDsa(id) ?: return
-        if (problem.status == "SOLVED" || problem.status == "MASTERED") return
-        val now = clock.nowEpochMs()
-        val reviewDue = now + 3L * 24 * 60 * 60 * 1000
-        db.moduleDao().updateDsa(
-            problem.copy(
-                status = "SOLVED",
-                attempts = problem.attempts + 1,
-                confidence = (problem.confidence + 1).coerceAtMost(5),
-                solvedAtEpochMs = now,
-                reviewDueEpochMs = reviewDue,
-            ),
-        )
-        progression.award(
-            "DSA",
-            "dsa_${problem.id}",
-            25,
-            mapOf(AttributeCode.INT to 20, AttributeCode.DISC to 5),
-            applyDailyCap = true,
-        )
-        addSkillXp("CAREER", problem.topic.ifBlank { "DSA" }, 25)
-        verification.tryAutoComplete(todayStr())
-    }
+    suspend fun markAttempted(id: Long) = career.markAttempted(id)
 
-    suspend fun masterDsa(id: Long) {
-        val problem = db.moduleDao().getDsa(id) ?: return
-        if (problem.status != "SOLVED") return
-        db.moduleDao().updateDsa(
-            problem.copy(
-                status = "MASTERED",
-                confidence = (problem.confidence + 1).coerceAtMost(5),
-            ),
-        )
-        progression.award(
-            "DSA_MASTER",
-            "dsa_master_${problem.id}",
-            15,
-            mapOf(AttributeCode.INT to 10, AttributeCode.DISC to 5),
-            applyDailyCap = true,
-        )
-        addSkillXp("CAREER", problem.topic.ifBlank { "DSA" }, 15)
-    }
+    suspend fun solveDsa(id: Long) = career.solveDsa(id)
 
-    suspend fun markDsaNeedsReview(id: Long) {
-        val problem = db.moduleDao().getDsa(id) ?: return
-        if (problem.status == "NOT_STARTED") return
-        db.moduleDao().updateDsa(problem.copy(status = "NEEDS_REVIEW"))
-    }
+    suspend fun masterDsa(id: Long) = career.masterDsa(id)
 
-    suspend fun updateDsaNotes(id: Long, notes: String, mistakes: String, approach: String) {
-        val problem = db.moduleDao().getDsa(id) ?: return
-        db.moduleDao().updateDsa(
-            problem.copy(notes = notes, mistakes = mistakes, approach = approach),
-        )
-    }
+    suspend fun markDsaNeedsReview(id: Long) = career.markDsaNeedsReview(id)
 
-    suspend fun ensureCareerCatalogsSeeded() {
-        if (db.moduleDao().getDsaProblems().isEmpty()) {
-            SeedData.dsaStarterProblems().forEach { db.moduleDao().upsertDsa(it) }
-        }
-        if (db.moduleDao().getSystemDesignTopics().isEmpty()) {
-            db.moduleDao().replaceSystemDesignTopics(SeedData.systemDesignTopics())
-        }
-    }
+    suspend fun updateDsaNotes(id: Long, notes: String, mistakes: String, approach: String) =
+        career.updateDsaNotes(id, notes, mistakes, approach)
 
-    suspend fun markSystemDesignConcept(topicId: String, conceptId: String, status: String) {
-        val topic = db.moduleDao().getSystemDesignTopics().find { it.id == topicId } ?: return
-        val previous = topic.concepts.find { it.id == conceptId }
-        val updatedConcepts = topic.concepts.map { concept ->
-            if (concept.id == conceptId) concept.copy(status = status) else concept
-        }
-        val statuses = updatedConcepts.mapNotNull { concept ->
-            runCatching { SystemDesignConceptStatus.valueOf(concept.status) }.getOrNull()
-        }
-        val confidence = SystemDesignProgressLogic.topicConfidence(statuses)
-        db.moduleDao().upsertSystemDesignTopic(
-            topic.copy(concepts = updatedConcepts, confidence = confidence),
-        )
-        if (previous?.status != "MASTERED" && status == "MASTERED") {
-            progression.award(
-                "SD_CONCEPT",
-                "sd_${topicId}_$conceptId",
-                10,
-                mapOf(AttributeCode.INT to 8, AttributeCode.WIS to 2),
-                applyDailyCap = true,
-            )
-        }
-    }
+    suspend fun ensureCareerCatalogsSeeded() = career.ensureCareerCatalogsSeeded()
 
-    suspend fun setSystemDesignConfidence(topicId: String, confidence: Int) {
-        val topic = db.moduleDao().getSystemDesignTopics().find { it.id == topicId } ?: return
-        db.moduleDao().upsertSystemDesignTopic(
-            topic.copy(confidence = confidence.coerceIn(0, 100)),
-        )
-    }
+    suspend fun markSystemDesignConcept(topicId: String, conceptId: String, status: String) =
+        career.markSystemDesignConcept(topicId, conceptId, status)
+
+    suspend fun setSystemDesignConfidence(topicId: String, confidence: Int) =
+        career.setSystemDesignConfidence(topicId, confidence)
+
+    suspend fun listCareerNodes(): List<CareerNodeEntity> = career.listCareerNodes()
+
+    suspend fun advanceCareerNode(id: Long) = career.advanceCareerNode(id)
 
     suspend fun logWorkout(type: String, durationMinutes: Int, notes: String = ""): Long {
         val date = todayStr()
@@ -347,6 +265,7 @@ class ModuleService(
             workoutName = if (plan.enabled) plan.name.ifBlank { "Workout" } else "Rest",
             exercises = exercises,
         )
+        if (!canWriteDate(resolved)) return log
         db.moduleDao().upsertWorkoutLog(log)
         return db.moduleDao().getWorkoutLog(resolved)!!
     }
@@ -357,6 +276,9 @@ class ModuleService(
      */
     suspend fun completeRestDay(date: String, activeRest: Boolean): WorkoutLogEntity {
         val resolved = date.ifBlank { todayStr() }
+        if (!canWriteDate(resolved)) {
+            return db.moduleDao().getWorkoutLog(resolved) ?: startOrGetWorkoutLog(resolved)
+        }
         val existing = startOrGetWorkoutLog(resolved)
         if (existing.isTrainingDayComplete()) return existing
 
@@ -380,19 +302,20 @@ class ModuleService(
                     "workout_${updated.date}",
                     xp,
                     mapOf(AttributeCode.STR to str, AttributeCode.VIT to vit),
-                    metadataJson = """{"module":"WORKOUT"}""",
+                    metadataJson = """{"module":"WORKOUT","STR":$str,"VIT":$vit}""",
                     applyDailyCap = true,
                     modules = modules,
                 )
             }
         }
+        verification.tryAutoComplete(resolved)
         return db.moduleDao().getWorkoutLog(resolved)!!
     }
 
     suspend fun upsertWorkoutLog(log: WorkoutLogEntity): Long {
+        if (!canWriteDate(log.date)) return log.id
         val id = db.moduleDao().upsertWorkoutLog(log)
-        val hasSets = log.exercises.any { it.sets.isNotEmpty() }
-        if (hasSets) {
+        if (log.exercises.any { it.sets.isNotEmpty() }) {
             val modules = progression.currentModules()
             if (modules.workout) {
                 val scale = workoutProgressionScale()
@@ -404,18 +327,23 @@ class ModuleService(
                     "workout_${log.date}",
                     xp,
                     mapOf(AttributeCode.STR to str, AttributeCode.VIT to vit),
-                    metadataJson = """{"module":"WORKOUT"}""",
+                    metadataJson = """{"module":"WORKOUT","STR":$str,"VIT":$vit}""",
                     applyDailyCap = true,
                     modules = modules,
                 )
             }
-            verification.tryAutoComplete(log.date)
+        } else if (log.restKind != WorkoutRestKind.ACTIVE_REST) {
+            reverseModuleAward("WORKOUT", "workout_${log.date}", "WORKOUT_UNDO", "UNDO_WORKOUT_")
         }
+        verification.tryAutoComplete(log.date)
         return id
     }
 
     suspend fun deleteWorkoutLog(date: String) {
+        if (!canWriteDate(date)) return
         db.moduleDao().deleteWorkoutLog(date)
+        reverseModuleAward("WORKOUT", "workout_$date", "WORKOUT_UNDO", "UNDO_WORKOUT_")
+        verification.tryAutoComplete(date)
     }
 
     suspend fun removeExerciseFromLog(date: String, exerciseId: Long) {
@@ -468,10 +396,11 @@ class ModuleService(
     suspend fun getDietLog(date: String): DietLogEntity? = db.moduleDao().getDietLog(date)
 
     suspend fun upsertDietLog(log: DietLogEntity) {
+        if (!canWriteDate(log.date)) return
         val withTotals = log.copy(dailyTotals = computeDailyTotals(log.meals))
         db.moduleDao().upsertDietLog(withTotals)
-        val hasFood = log.meals.any { it.foods.isNotEmpty() }
-        if (hasFood) {
+        val trackingComplete = MealCompletionPolicy.isMealTrackingComplete(withTotals)
+        if (trackingComplete) {
             val modules = progression.currentModules()
             if (modules.diet) {
                 progression.award(
@@ -479,21 +408,27 @@ class ModuleService(
                     "nutrition_${log.date}",
                     15,
                     mapOf(AttributeCode.VIT to 15),
-                    metadataJson = """{"module":"DIET"}""",
+                    metadataJson = """{"module":"DIET","VIT":15}""",
                     applyDailyCap = true,
                     modules = modules,
                 )
             }
-            verification.tryAutoComplete(log.date)
+        } else {
+            reverseModuleAward("NUTRITION", "nutrition_${log.date}", "NUTRITION_UNDO", "UNDO_NUTRITION_")
         }
+        verification.tryAutoComplete(log.date)
     }
 
     suspend fun deleteDietLog(date: String) {
+        if (!canWriteDate(date)) return
         db.moduleDao().deleteDietLog(date)
+        reverseModuleAward("NUTRITION", "nutrition_$date", "NUTRITION_UNDO", "UNDO_NUTRITION_")
+        verification.tryAutoComplete(date)
     }
 
     suspend fun addMeal(date: String, name: String): Long {
         val resolved = date.ifBlank { todayStr() }
+        if (!canWriteDate(resolved)) return 0L
         val log = db.moduleDao().getDietLog(resolved) ?: DietLogEntity(date = resolved)
         val meal = MealEntity(id = System.nanoTime(), name = name.ifBlank { "Meal" })
         upsertDietLog(log.copy(meals = log.meals + meal))
@@ -502,12 +437,14 @@ class ModuleService(
 
     suspend fun deleteMeal(date: String, mealId: Long) {
         val resolved = date.ifBlank { todayStr() }
+        if (!canWriteDate(resolved)) return
         val log = db.moduleDao().getDietLog(resolved) ?: return
         upsertDietLog(log.copy(meals = log.meals.filterNot { it.id == mealId }))
     }
 
     suspend fun renameMeal(date: String, mealId: Long, name: String) {
         val resolved = date.ifBlank { todayStr() }
+        if (!canWriteDate(resolved)) return
         val log = db.moduleDao().getDietLog(resolved) ?: return
         upsertDietLog(
             log.copy(
@@ -518,6 +455,7 @@ class ModuleService(
 
     suspend fun upsertFood(date: String, mealId: Long, food: FoodItemEntity) {
         val resolved = date.ifBlank { todayStr() }
+        if (!canWriteDate(resolved)) return
         val log = db.moduleDao().getDietLog(resolved) ?: DietLogEntity(date = resolved)
         val withId = if (food.id == 0L) food.copy(id = System.nanoTime()) else food
         val meals = log.meals.toMutableList()
@@ -532,6 +470,7 @@ class ModuleService(
 
     suspend fun deleteFood(date: String, mealId: Long, foodId: Long) {
         val resolved = date.ifBlank { todayStr() }
+        if (!canWriteDate(resolved)) return
         val log = db.moduleDao().getDietLog(resolved) ?: return
         upsertDietLog(
             log.copy(
@@ -544,15 +483,24 @@ class ModuleService(
 
     suspend fun logNutrition(calories: Int, protein: Int, carbs: Int, fat: Int) {
         val date = todayStr()
-        db.moduleDao().upsertNutrition(NutritionLogEntity(date, calories, protein, carbs, fat))
-        progression.award(
-            "NUTRITION",
-            "nutrition_$date",
-            15,
-            mapOf(AttributeCode.VIT to 15),
-            applyDailyCap = true,
+        if (!canWriteDate(date)) return
+        val log = db.moduleDao().getDietLog(date) ?: DietLogEntity(date = date)
+        val meal = log.meals.firstOrNull { it.name == "Logged macros" }
+            ?: MealEntity(id = System.nanoTime(), name = "Logged macros")
+        val food = FoodItemEntity(
+            id = System.nanoTime(),
+            name = "Logged macros",
+            calories = calories,
+            protein = protein,
+            carbs = carbs,
+            fat = fat,
         )
-        verification.tryAutoComplete(date)
+        val meals = if (log.meals.any { it.id == meal.id }) {
+            log.meals.map { if (it.id == meal.id) it.copy(foods = listOf(food)) else it }
+        } else {
+            log.meals + meal.copy(foods = listOf(food))
+        }
+        upsertDietLog(log.copy(meals = meals))
     }
 
     fun mealTotals(meal: MealEntity): NutritionTotalsEntity = sumFoods(meal.foods)
@@ -611,28 +559,6 @@ class ModuleService(
 
     suspend fun getJournal(date: String): JournalEntryEntity? = db.moduleDao().getJournal(date)
 
-    suspend fun listCareerNodes(): List<CareerNodeEntity> = db.moduleDao().getCareerNodes()
-
-    suspend fun advanceCareerNode(id: Long) {
-        val node = db.moduleDao().getCareerNode(id) ?: return
-        val nextStatus = when (node.status) {
-            "LOCKED" -> "STARTED"
-            "STARTED" -> "LEARNING"
-            "LEARNING" -> "PRACTICED"
-            "PRACTICED" -> "MASTERED"
-            else -> return
-        }
-        db.moduleDao().upsertCareerNode(node.copy(status = nextStatus))
-        addSkillXp("CAREER", node.track, 10)
-        if (nextStatus == "MASTERED") {
-            val next = db.moduleDao().getCareerNodes()
-                .firstOrNull { it.track == node.track && it.orderIndex == node.orderIndex + 1 && it.status == "LOCKED" }
-            if (next != null) {
-                db.moduleDao().upsertCareerNode(next.copy(status = "STARTED"))
-            }
-        }
-    }
-
     suspend fun logRoutine(kind: String) {
         val date = todayStr()
         db.moduleDao().insertRoutineLog(
@@ -662,7 +588,11 @@ class ModuleService(
         }
     }
 
+    /**
+     * Debug-only additive boss progress. Production gameplay uses [BossProgressHandler] + [BossProgressLogic].
+     */
     suspend fun addBossProgress(amount: Float) {
+        if (!com.example.solo_levelling.BuildConfig.DEBUG) return
         val boss = db.moduleDao().getActiveBoss() ?: return
         val newValue = (boss.currentValue + amount).coerceAtMost(boss.targetValue)
         val cleared = newValue >= boss.targetValue
@@ -702,5 +632,22 @@ class ModuleService(
         if (existing == null || level > existing.level) {
             eventBus.publish(DomainEvent.SkillLevelUp(newId, level))
         }
+    }
+
+    private suspend fun reverseModuleAward(
+        sourceType: String,
+        baseSourceId: String,
+        reverseSourceType: String,
+        reverseIdPrefix: String,
+    ) {
+        val award = progression.findUnrevertedAward(sourceType, baseSourceId) ?: return
+        val attrs = AttributeRewardsParser.parse(award.metadataJson).associate { it.code to it.amount }
+        progression.reverse(
+            originalSourceType = award.sourceType,
+            originalSourceId = award.sourceId,
+            reverseSourceType = reverseSourceType,
+            reverseSourceId = "$reverseIdPrefix${award.id}",
+            attrs = attrs,
+        )
     }
 }

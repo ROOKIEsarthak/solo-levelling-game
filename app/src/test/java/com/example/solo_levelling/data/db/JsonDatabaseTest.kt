@@ -3,6 +3,7 @@ package com.example.solo_levelling.data.db
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.solo_levelling.core.config.SystemDefaults
+import com.example.solo_levelling.data.db.entity.DsaProblemEntity
 import com.example.solo_levelling.data.db.entity.LoggedExerciseEntity
 import com.example.solo_levelling.data.db.entity.LoggedSetEntity
 import com.example.solo_levelling.data.db.entity.NutritionLogEntity
@@ -200,5 +201,42 @@ class JsonDatabaseTest {
         assertTrue(file.exists())
         assertTrue(file.readText().contains("Fundamentals"))
         assertEquals(1, db.moduleDao().getSystemDesignTopics().size)
+    }
+
+    @Test
+    fun p_countWorkoutsInRange_onlyCompletedLogs() = runTest {
+        db.moduleDao().upsertWorkoutLog(
+            WorkoutLogEntity(date = "2026-08-14", workoutName = "Empty"),
+        )
+        db.moduleDao().upsertWorkoutLog(
+            WorkoutLogEntity(
+                date = "2026-08-15",
+                workoutName = "Push",
+                exercises = listOf(
+                    LoggedExerciseEntity(name = "Bench", sets = listOf(LoggedSetEntity(60f, 8))),
+                ),
+            ),
+        )
+        assertEquals(1, db.moduleDao().countWorkoutsInRange("2026-08-14", "2026-08-15"))
+        assertEquals(1, db.moduleDao().countWorkoutDaysInRange("2026-08-14", "2026-08-15"))
+    }
+
+    @Test
+    fun n_countDsaSolvedOnDate_ignoresNullTimestamp() = runTest {
+        db.moduleDao().upsertDsa(
+            DsaProblemEntity(title = "Legacy", status = "SOLVED", solvedAtEpochMs = null),
+        )
+        val start = 1_000L
+        val end = 2_000L
+        assertEquals(0, db.moduleDao().countDsaSolvedOnDate(start, end))
+    }
+
+    @Test
+    fun p_countDsaSolvedOnDate_countsTimestampInWindow() = runTest {
+        db.moduleDao().upsertDsa(
+            DsaProblemEntity(title = "Two Sum", status = "SOLVED", solvedAtEpochMs = 1_500L),
+        )
+        assertEquals(1, db.moduleDao().countDsaSolvedOnDate(1_000L, 2_000L))
+        assertEquals(0, db.moduleDao().countDsaSolvedOnDate(2_000L, 3_000L))
     }
 }

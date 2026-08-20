@@ -68,7 +68,7 @@ class OnboardingService(
         if (db.achievementDao().getDefs().isEmpty()) {
             db.achievementDao().upsertDefs(SeedData.achievements())
         }
-        if (db.questDao().getActiveTemplates().isEmpty() && db.questDao().getTemplateByKey("recovery") == null) {
+        if (db.questDao().getActiveTemplates().isEmpty()) {
             db.questDao().upsertTemplates(SeedData.defaultTemplates())
         }
         if (db.playerDao().getAttributes().isEmpty()) {
@@ -86,16 +86,14 @@ class OnboardingService(
         }
         ensureConfigDefaults()
         migrateModuleFlagsIfNeeded()
+        migrateModuleLifecycleIfNeeded()
         if (db.moduleDao().getCareerNodes().isEmpty()) {
             SeedData.careerNodes().forEach { node ->
                 val status = if (node.orderIndex == 1) "STARTED" else node.status
                 db.moduleDao().upsertCareerNode(node.copy(status = status))
             }
         }
-        val modules = currentModules()
-        if (modules.career) {
-            seedCareerCatalogsIfEmpty()
-        }
+        seedCareerCatalogsIfEmpty()
     }
 
     suspend fun migrateModuleFlagsIfNeeded() {
@@ -105,9 +103,17 @@ class OnboardingService(
         val diet = db.configDao().get(ModuleFlags.KEY_DIET)?.value
         if (!ModuleFlags.needsMigration(career, workout, diet)) return
         if (profile?.onboardingDone != true) return
-        for ((key, value) in ModuleFlags.encode(
-            EnabledModules(career = true, workout = true, diet = true),
-        )) {
+        val inferred = EnabledModules(
+            career = moduleConfigLooksInitialized(db, ModuleFlags.MODULE_CAREER),
+            workout = moduleConfigLooksInitialized(db, ModuleFlags.MODULE_WORKOUT),
+            diet = moduleConfigLooksInitialized(db, ModuleFlags.MODULE_DIET),
+        )
+        val modules = if (inferred.anyEnabled) {
+            inferred
+        } else {
+            EnabledModules(career = true, workout = true, diet = true)
+        }
+        for ((key, value) in ModuleFlags.encode(modules)) {
             db.configDao().upsert(UserConfigEntity(key, value))
         }
     }
@@ -122,7 +128,8 @@ class OnboardingService(
         )
     }
 
-    suspend fun writeModuleFlags(modules: EnabledModules) {
+    suspend fun writeModuleFlags(modules: EnabledModules): Boolean {
+        if (!modules.anyEnabled) return false
         for ((key, value) in ModuleFlags.encode(modules)) {
             db.configDao().upsert(UserConfigEntity(key, value))
         }
@@ -130,6 +137,184 @@ class OnboardingService(
         season?.rebuildFromLedger(modules)
         val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
         questGeneration.generateForToday(profile?.timezone ?: ZoneId.systemDefault().id)
+        return true
+    }
+
+    suspend fun applyModuleConfiguration(module: String, input: OnboardingInput) {
+        val configs = mutableMapOf<String, String>()
+        when (module) {
+            ModuleFlags.MODULE_CAREER -> {
+                val assessment = CareerGoalEngine.assess(
+                    experienceBand = input.experienceBand,
+                    currentRole = input.currentRole,
+                    targetRole = input.targetRole,
+                    yearsExperience = input.yearsExperience,
+                    dsaConfidence = input.dsaConfidence,
+                    sdConfidence = input.sdConfidence,
+                )
+                configs += mapOf(
+                    "career_intent" to input.careerIntent,
+                    "career_experience_band" to input.experienceBand,
+                    "career_current_role" to input.currentRole,
+                    "career_target_role" to input.targetRole,
+                    "career_years_experience" to input.yearsExperience.toString(),
+                    "career_tech_stack" to input.techStack,
+                    "career_target_companies" to input.targetCompanies,
+                    "career_target_comp" to input.targetComp,
+                    "career_target_timeline" to input.targetTimeline,
+                    "career_dsa_confidence" to input.dsaConfidence.toString(),
+                    "career_sd_confidence" to input.sdConfidence.toString(),
+                    "career_reason" to assessment.reason,
+                    "career_goal_reason" to assessment.reason,
+                    "career_recommended_areas" to assessment.recommendedAreas.joinToString(","),
+                    "career_current_level" to assessment.currentLevelLabel,
+                    "career_target_level" to assessment.targetLevelLabel,
+                    "goal_title" to assessment.nextGoalTitle,
+                    "career_next_goal" to assessment.nextGoalTitle,
+                    "career_mandatory_areas" to assessment.mandatoryAreas.joinToString(","),
+                    "backend_confidence" to "0",
+                    "behavioral_confidence" to "0",
+                )
+                seedCareerCatalogsIfEmpty()
+            }
+            ModuleFlags.MODULE_WORKOUT, ModuleFlags.MODULE_DIET -> {
+                writeBodyAndNutritionConfigs(module, input, configs)
+            }
+        }
+        for ((key, value) in configs) {
+            db.configDao().upsert(UserConfigEntity(key, value))
+        }
+        if (module == ModuleFlags.MODULE_WORKOUT) {
+            applyWorkoutPlan(input)
+        }
+        val scheduleCsv = scheduleDaysToCsv(input.scheduleDays)
+        if (scheduleCsv.isNotEmpty() && module == ModuleFlags.MODULE_WORKOUT) {
+            db.configDao().upsert(UserConfigEntity("schedule_days_csv", scheduleCsv))
+        }
+    }
+
+    private suspend fun writeBodyAndNutritionConfigs(
+        module: String,
+        input: OnboardingInput,
+        configs: MutableMap<String, String>,
+    ) {
+        val bmi = NutritionCalc.bmi(input.heightCm, input.weightKg)
+        configs += mapOf(
+            "height_cm" to input.heightCm.toString(),
+            "weight_kg" to input.weightKg.toString(),
+            "age" to input.age.toString(),
+            "sex" to input.sex,
+            "bmi_estimate" to String.format("%.1f", bmi),
+            "activity_level" to input.activityLevel,
+            "fitness_goal" to input.fitnessGoal,
+        )
+        if (module == ModuleFlags.MODULE_WORKOUT) {
+            configs += mapOf(
+                "training_days" to input.trainingDays.toString(),
+                "training_experience" to input.trainingExperience,
+            )
+            if (input.preferredWorkoutDays.isNotEmpty()) {
+                configs["preferred_workout_days"] = input.preferredWorkoutDays.joinToString(",")
+            }
+        }
+        if (module == ModuleFlags.MODULE_DIET) {
+            val bmr = NutritionCalc.bmrMifflin(input.sex, input.age, input.heightCm, input.weightKg)
+            val tdee = NutritionCalc.tdee(bmr, input.activityLevel)
+            val goalCalories = input.calorieOverride ?: NutritionCalc.goalCalories(tdee, input.fitnessGoal)
+            val macros = NutritionCalc.macroTargets(input.weightKg, goalCalories, input.fitnessGoal)
+            configs += mapOf(
+                "calorie_target" to goalCalories.toString(),
+                "protein_target" to macros.proteinG.toString(),
+                "carb_target" to macros.carbsG.toString(),
+                "fat_target" to macros.fatG.toString(),
+                "bmr_estimate" to bmr.toInt().toString(),
+                "tdee_estimate" to tdee.toInt().toString(),
+            )
+            input.targetWeightKg?.let { configs["target_weight_kg"] = it.toString() }
+            input.bodyFatPct?.let { configs["body_fat_pct"] = it.toString() }
+        }
+    }
+
+    private suspend fun applyWorkoutPlan(input: OnboardingInput) {
+        if (input.createOwnRoutine) {
+            applyCustomRoutine(input)
+            return
+        }
+        if (input.workoutSplitId.isBlank()) return
+        val scheduleCsv = scheduleDaysToCsv(input.scheduleDays)
+        val result = if (input.workoutDayMapCsv.isNotBlank()) {
+            WorkoutSplitLogic.buildRoutine(
+                input.workoutSplitId,
+                WorkoutSplitLogic.parseDayMap(input.workoutDayMapCsv),
+            )
+        } else {
+            WorkoutSplitLogic.buildRoutineFromScheduleCsv(input.workoutSplitId, scheduleCsv)
+        }
+        if (result.routine == null) return
+        db.configDao().upsert(UserConfigEntity("workout_split_id", input.workoutSplitId))
+        if (input.workoutDayMapCsv.isNotBlank()) {
+            db.configDao().upsert(UserConfigEntity("workout_split_map", input.workoutDayMapCsv))
+        }
+        if (result.trainingIsoDays.isNotEmpty()) {
+            db.configDao().upsert(
+                UserConfigEntity("schedule_days_csv", result.trainingIsoDays.joinToString(",")),
+            )
+        }
+        db.moduleDao().upsertWorkoutRoutine(result.routine)
+        db.configDao().upsert(
+            UserConfigEntity(WorkoutSplitChangeLogic.KEY_APPLIED_AT, clock.nowEpochMs().toString()),
+        )
+        db.configDao().upsert(UserConfigEntity(WorkoutSplitChangeLogic.KEY_SCALE, "1.0"))
+    }
+
+    private suspend fun markSetupCompleted(modules: EnabledModules) {
+        for (module in ModuleFlags.SELECTABLE) {
+            if (!modules.isEnabled(module)) continue
+            db.configDao().upsert(UserConfigEntity(ModuleFlags.setupCompletedKey(module), "true"))
+            if (db.configDao().get(ModuleFlags.enabledAtKey(module)) == null) {
+                db.configDao().upsert(
+                    UserConfigEntity(ModuleFlags.enabledAtKey(module), clock.nowEpochMs().toString()),
+                )
+            }
+        }
+    }
+
+    suspend fun seedWeightMetricIfNeeded(weightKg: Double) {
+        if (weightKg <= 0.0) return
+        if (db.moduleDao().recentMetrics("WEIGHT", 1).isNotEmpty()) return
+        val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
+        val zone = runCatching { ZoneId.of(profile?.timezone ?: ZoneId.systemDefault().id) }
+            .getOrDefault(ZoneId.systemDefault())
+        val date = clock.today(zone).format(DateTimeFormatter.ISO_LOCAL_DATE)
+        db.moduleDao().insertMetric(
+            MetricLogEntity(
+                metricType = "WEIGHT",
+                value = weightKg.toFloat(),
+                recordedAtEpochMs = clock.nowEpochMs(),
+                date = date,
+            ),
+        )
+    }
+
+    suspend fun migrateModuleLifecycleIfNeeded() {
+        val modules = currentModules()
+        val now = clock.nowEpochMs().toString()
+        for (module in ModuleFlags.SELECTABLE) {
+            val initialized = moduleConfigLooksInitialized(db, module)
+            val setupKey = ModuleFlags.setupCompletedKey(module)
+            val existing = db.configDao().get(setupKey)?.value
+            if (initialized) {
+                if (!ModuleFlags.isTrue(existing)) {
+                    db.configDao().upsert(UserConfigEntity(setupKey, "true"))
+                }
+            } else if (ModuleFlags.isTrue(existing)) {
+                db.configDao().upsert(UserConfigEntity(setupKey, "false"))
+            }
+            val enabled = modules.isEnabled(module)
+            if (enabled && initialized && db.configDao().get(ModuleFlags.enabledAtKey(module)) == null) {
+                db.configDao().upsert(UserConfigEntity(ModuleFlags.enabledAtKey(module), now))
+            }
+        }
     }
 
     private suspend fun seedCareerCatalogsIfEmpty() {
@@ -176,125 +361,17 @@ class OnboardingService(
             EnabledModules(career = true, workout = false, diet = false)
         }
         writeModuleFlags(modules)
-
-        val configs = mutableMapOf<String, String>()
-
-        if (modules.career) {
-            val assessment = CareerGoalEngine.assess(
-                experienceBand = input.experienceBand,
-                currentRole = input.currentRole,
-                targetRole = input.targetRole,
-                yearsExperience = input.yearsExperience,
-                dsaConfidence = input.dsaConfidence,
-                sdConfidence = input.sdConfidence,
-            )
-            configs += mapOf(
-                "career_intent" to input.careerIntent,
-                "career_experience_band" to input.experienceBand,
-                "career_current_role" to input.currentRole,
-                "career_target_role" to input.targetRole,
-                "career_years_experience" to input.yearsExperience.toString(),
-                "career_tech_stack" to input.techStack,
-                "career_target_companies" to input.targetCompanies,
-                "career_target_comp" to input.targetComp,
-                "career_target_timeline" to input.targetTimeline,
-                "career_dsa_confidence" to input.dsaConfidence.toString(),
-                "career_sd_confidence" to input.sdConfidence.toString(),
-                "career_reason" to assessment.reason,
-                "career_goal_reason" to assessment.reason,
-                "career_recommended_areas" to assessment.recommendedAreas.joinToString(","),
-                "career_current_level" to assessment.currentLevelLabel,
-                "career_target_level" to assessment.targetLevelLabel,
-                "goal_title" to assessment.nextGoalTitle,
-                "career_next_goal" to assessment.nextGoalTitle,
-                "career_mandatory_areas" to assessment.mandatoryAreas.joinToString(","),
-                "backend_confidence" to "0",
-                "behavioral_confidence" to "0",
-            )
-            seedCareerCatalogsIfEmpty()
-        }
-
-        val needBody = modules.workout || modules.diet
-        if (needBody) {
-            val bmi = NutritionCalc.bmi(input.heightCm, input.weightKg)
-            configs += mapOf(
-                "height_cm" to input.heightCm.toString(),
-                "weight_kg" to input.weightKg.toString(),
-                "age" to input.age.toString(),
-                "sex" to input.sex,
-                "bmi_estimate" to String.format("%.1f", bmi),
-                "activity_level" to input.activityLevel,
-                "fitness_goal" to input.fitnessGoal,
-            )
-        }
-
-        if (modules.workout) {
-            configs += mapOf(
-                "training_days" to input.trainingDays.toString(),
-                "training_experience" to input.trainingExperience,
-            )
-            if (input.preferredWorkoutDays.isNotEmpty()) {
-                configs["preferred_workout_days"] = input.preferredWorkoutDays.joinToString(",")
-            }
-        }
-
-        if (modules.diet) {
-            val bmr = NutritionCalc.bmrMifflin(input.sex, input.age, input.heightCm, input.weightKg)
-            val tdee = NutritionCalc.tdee(bmr, input.activityLevel)
-            val goalCalories = input.calorieOverride ?: NutritionCalc.goalCalories(tdee, input.fitnessGoal)
-            val macros = NutritionCalc.macroTargets(input.weightKg, goalCalories, input.fitnessGoal)
-            configs += mapOf(
-                "calorie_target" to goalCalories.toString(),
-                "protein_target" to macros.proteinG.toString(),
-                "carb_target" to macros.carbsG.toString(),
-                "fat_target" to macros.fatG.toString(),
-                "bmr_estimate" to bmr.toInt().toString(),
-                "tdee_estimate" to tdee.toInt().toString(),
-            )
-            input.targetWeightKg?.let { configs["target_weight_kg"] = it.toString() }
-            input.bodyFatPct?.let { configs["body_fat_pct"] = it.toString() }
-        }
-
-        for ((key, value) in configs) {
-            db.configDao().upsert(UserConfigEntity(key, value))
-        }
+        if (modules.career) applyModuleConfiguration(ModuleFlags.MODULE_CAREER, input)
+        if (modules.workout) applyModuleConfiguration(ModuleFlags.MODULE_WORKOUT, input)
+        if (modules.diet) applyModuleConfiguration(ModuleFlags.MODULE_DIET, input)
+        markSetupCompleted(modules)
 
         val scheduleCsv = scheduleDaysToCsv(input.scheduleDays)
         if (scheduleCsv.isNotEmpty()) {
             db.configDao().upsert(UserConfigEntity("schedule_days_csv", scheduleCsv))
         }
 
-        if (modules.workout) {
-            if (input.createOwnRoutine) {
-                applyCustomRoutine(input)
-            } else if (input.workoutSplitId.isNotBlank()) {
-                val result = if (input.workoutDayMapCsv.isNotBlank()) {
-                    WorkoutSplitLogic.buildRoutine(
-                        input.workoutSplitId,
-                        WorkoutSplitLogic.parseDayMap(input.workoutDayMapCsv),
-                    )
-                } else {
-                    WorkoutSplitLogic.buildRoutineFromScheduleCsv(input.workoutSplitId, scheduleCsv)
-                }
-                if (result.routine != null) {
-                    db.configDao().upsert(UserConfigEntity("workout_split_id", input.workoutSplitId))
-                    if (input.workoutDayMapCsv.isNotBlank()) {
-                        db.configDao().upsert(UserConfigEntity("workout_split_map", input.workoutDayMapCsv))
-                    }
-                    if (result.trainingIsoDays.isNotEmpty()) {
-                        db.configDao().upsert(
-                            UserConfigEntity("schedule_days_csv", result.trainingIsoDays.joinToString(",")),
-                        )
-                    }
-                    db.moduleDao().upsertWorkoutRoutine(result.routine)
-                    db.configDao().upsert(
-                        UserConfigEntity(WorkoutSplitChangeLogic.KEY_APPLIED_AT, clock.nowEpochMs().toString()),
-                    )
-                    db.configDao().upsert(UserConfigEntity(WorkoutSplitChangeLogic.KEY_SCALE, "1.0"))
-                }
-            }
-        }
-
+        val needBody = modules.workout || modules.diet
         val existing = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
             ?: PlayerProfileEntity(createdAtEpochMs = clock.nowEpochMs())
         val priorities = input.priorities.ifEmpty {
@@ -304,28 +381,21 @@ class OnboardingService(
                 if (modules.diet) add("health")
             }
         }
+        val deviceTimezone = ZoneId.systemDefault().id
         db.playerDao().upsertProfile(
             existing.copy(
                 name = input.name.ifBlank { "Hunter" },
                 prioritiesCsv = priorities.joinToString(","),
+                timezone = deviceTimezone,
                 onboardingDone = true,
             ),
         )
 
-        if (needBody && input.weightKg > 0) {
-            val zone = runCatching { ZoneId.of(existing.timezone) }.getOrDefault(ZoneId.systemDefault())
-            val date = clock.today(zone).format(DateTimeFormatter.ISO_LOCAL_DATE)
-            db.moduleDao().insertMetric(
-                MetricLogEntity(
-                    metricType = "WEIGHT",
-                    value = input.weightKg.toFloat(),
-                    recordedAtEpochMs = clock.nowEpochMs(),
-                    date = date,
-                ),
-            )
+        if (needBody) {
+            seedWeightMetricIfNeeded(input.weightKg)
         }
 
-        questGeneration.generateForToday(existing.timezone)
+        questGeneration.generateForToday(deviceTimezone)
     }
 
     private suspend fun applyCustomRoutine(input: OnboardingInput) {

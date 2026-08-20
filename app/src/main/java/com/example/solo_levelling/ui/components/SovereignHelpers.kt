@@ -1,5 +1,7 @@
 package com.example.solo_levelling.ui.components
 
+import com.example.solo_levelling.core.config.SystemDefaults
+
 /** Pure helpers for Sovereign OS chrome — unit-testable without Compose runtime. */
 
 enum class NavFamily { Home, Quests, Progress, Character, More, None }
@@ -193,6 +195,19 @@ fun humanizeNextActionDetail(detail: String): String {
         " is at ${match.groupValues[1]}% — a good place to focus next."
     }
     return result
+}
+
+fun isQuestUndoAvailable(
+    questType: String,
+    status: String,
+    completedAtEpochMs: Long?,
+    nowEpochMs: Long,
+    windowMinutes: Int = SystemDefaults.QUEST_UNDO_MINUTES,
+): Boolean {
+    if (questType == "MILESTONE") return false
+    if (status != "COMPLETED") return false
+    if (completedAtEpochMs == null) return false
+    return nowEpochMs - completedAtEpochMs <= windowMinutes * 60_000L
 }
 
 fun questRankForXp(baseXp: Int): String = when {

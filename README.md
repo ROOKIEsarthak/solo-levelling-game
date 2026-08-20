@@ -12,9 +12,9 @@ Offline-first Android MVP inspired by Solo Leveling. Meaningful actions become q
 - **Character** — profile, lifetime XP, ledger history, seven attributes (STR, END, INT, VIT, DISC, FOC, WIS)
 - **Life modules** — DSA, workouts, nutrition, focus, journal, boss quests, skills, career nodes
 - **Analytics** — weekly review, adaptive XP suggestions, JSON export
-- **Achievements & streaks** — updated via domain events; grace days and recovery quests
-- **Daily quest generation** — `DailyQuestWorker` schedules today’s plan
-- **Day boundary** — `DayBoundaryWorker` handles midnight streak miss / recovery
+- **Achievements & streaks** — updated via domain events; streak break UX via `StreakRecoveryHost` (Recovery Quest feature removed)
+- **Daily quest generation** — `DailyQuestWorker` + day-boundary catch-up
+- **Day boundary** — next-local-midnight `DayBoundaryCoordinator` / `DayBoundaryWorker` (not a fixed 24h interval)
 - **Settings** — goals, schedule, targets; **Reset** clears progress and keeps name + configs
 - **Anti-farming** — daily XP cap, idempotent completion, undo window
 
@@ -26,27 +26,42 @@ Offline-first Android MVP inspired by Solo Leveling. Meaningful actions become q
 | UI | Jetpack Compose + Material 3 |
 | Persistence | `JsonDatabase` — JSON under `filesDir/db/` (Gson; **not Room**) |
 | Async | Coroutines |
-| Background | WorkManager |
+| Background | WorkManager (one-time midnight boundary + daily quest gen) |
 | DI | Manual `AppContainer` |
-| Architecture | Layered monolith + in-process EventBus |
+| Architecture | Layered monolith + EventBus for optional side effects |
 
 ## Architecture
 
 ```
-UI (Compose + ViewModels)
+UI (Compose + thin ViewModels)
     ↓
 AppContainer (manual DI)
     ↓
-Domain services + event handlers
+Domain services + PostQuestCompletionCoordinator + handlers
     ↓
 JsonDatabase (filesDir/db/*.json + tasks/)
 ```
 
-- **Services** — quests, progression (`ProgressionService`), onboarding, modules, analytics, seasons, day boundary
-- **EventBus** — `QuestCompleted`, `XpAwarded`, `LevelUp`, `StreakUpdated`, … → handlers for streaks, achievements, boss progress, notifications, sync outbox, seasons
-- **V3 ports (offline no-ops)** — `MetricIngestPort`, `CalendarPort`, `SyncTransportPort`
+### CURRENT ownership (canonical)
 
-Full product/technical spec: [`app/src/main/java/com/example/solo_levelling/docs/app-architecture.md`](app/src/main/java/com/example/solo_levelling/docs/app-architecture.md)
+| Concern | Owner |
+|---------|--------|
+| Day boundary / midnight | `DayBoundaryCoordinator` + `DayBoundaryService`; Worker is thin |
+| Active module reads | `ActiveProgressionReader` + `ModuleScope` |
+| Boss progress | `BossProgressHandler` + `BossProgressLogic` |
+| Quest XP / status | `QuestCompletionService` |
+| Critical post-complete | `PostQuestCompletionCoordinator` (streak, boss, achievements, deps, season) |
+| Optional side effects | EventBus → notifications / UI overlays |
+| Sync | **None** (outbox removed until a real transport exists) |
+
+### FUTURE product intent (not current)
+
+Auth, remote backend, Room/DataStore, real sync transport.
+
+- **EventBus** — optional/async listeners after critical post-completion orchestration
+- **V3 ports (offline no-ops)** — `MetricIngestPort`, `CalendarPort`
+
+Canonical technical reference: [`docs/architecture-and-system-design.md`](docs/architecture-and-system-design.md). Product/technical spec (PRD, prefer code when they disagree): [`app/src/main/java/com/example/solo_levelling/docs/app-architecture.md`](app/src/main/java/com/example/solo_levelling/docs/app-architecture.md)
 
 ## Local data
 

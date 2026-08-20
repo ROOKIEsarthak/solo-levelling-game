@@ -175,4 +175,13 @@ class CompleteRestDayTest {
         val reseeded = service.startOrGetWorkoutLog("2026-08-16")
         assertEquals("Rest", reseeded.workoutName)
     }
+
+    @Test
+    fun n_completeRestDay_pastDate_doesNotPersist() = runTest {
+        seed()
+        val log = service.completeRestDay("2026-08-15", activeRest = true)
+        assertEquals("2026-08-15", log.date)
+        assertNull(db.moduleDao().getWorkoutLog("2026-08-15"))
+        assertEquals(0, db.playerDao().getProfile(1)!!.totalXp)
+    }
 }

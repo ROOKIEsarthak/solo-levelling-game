@@ -15,10 +15,10 @@ object ModuleScope {
     fun moduleForSourceType(sourceType: String): ModuleId =
         when (sourceType.uppercase()) {
             "DSA", "DSA_MASTER", "SD_CONCEPT" -> ModuleId.CAREER
-            "WORKOUT" -> ModuleId.WORKOUT
-            "NUTRITION" -> ModuleId.DIET
+            "WORKOUT", "WORKOUT_UNDO" -> ModuleId.WORKOUT
+            "NUTRITION", "NUTRITION_UNDO" -> ModuleId.DIET
             "FOCUS", "JOURNAL", "ACHIEVEMENT", "BOSS", "BOSS_UNDO",
-            "QUEST_UNDO", "SEASON",
+            "QUEST_UNDO", "QUEST_UNDO_PENALTY", "SEASON",
             -> ModuleId.GLOBAL
             "QUEST_INSTANCE" -> ModuleId.GLOBAL // refined via quest tags / metadata
             else -> ModuleId.GLOBAL
@@ -85,7 +85,9 @@ object ModuleScope {
             if (questModule != null) return isEnabled(questModule, modules)
             return true // untagged / unknown quest XP treated as global
         }
-        if (upper == "QUEST_UNDO" || upper == "BOSS_UNDO") {
+        if (upper == "QUEST_UNDO" || upper == "QUEST_UNDO_PENALTY" ||
+            upper == "BOSS_UNDO" || upper == "WORKOUT_UNDO" || upper == "NUTRITION_UNDO"
+        ) {
             val fromMeta = parseModuleFromMetadata(metadataJson)
             if (fromMeta != null) return isEnabled(fromMeta, modules)
             return true

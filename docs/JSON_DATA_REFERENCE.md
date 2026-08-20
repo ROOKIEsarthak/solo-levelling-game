@@ -1,7 +1,7 @@
 # Solo Levelling — JSON & Data Reference
 
 > Complete inventory of JSON in this repository and the **runtime JSON file database** used by the app.  
-> See also: [APP_DOCUMENTATION.md](./APP_DOCUMENTATION.md) · [SYSTEM_DESIGN.md](./SYSTEM_DESIGN.md)
+> See also: [APP_DOCUMENTATION.md](./APP_DOCUMENTATION.md) · [SYSTEM_DESIGN.md](./SYSTEM_DESIGN.md) · [ARCHITECTURE_ANALYSIS.md](./ARCHITECTURE_ANALYSIS.md)
 
 **Critical fact:** The application does **not** ship checked-in application data `.json` files. Persistence files are created at runtime under `{context.filesDir}/db/`. Static catalogs live in Kotlin (`SeedData`, `WorkoutCatalog`, `FoodCatalog`).
 

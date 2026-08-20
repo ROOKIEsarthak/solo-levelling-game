@@ -10,7 +10,6 @@ class QuestTabDisplayLabelTest {
         assertEquals("Today", QuestTab.TODAY.displayLabel())
         assertEquals("Weekly", QuestTab.WEEKLY.displayLabel())
         assertEquals("Milestones", QuestTab.MILESTONES.displayLabel())
-        assertEquals("Recovery", QuestTab.RECOVERY.displayLabel())
         assertEquals("Bosses", QuestTab.BOSSES.displayLabel())
     }
 }

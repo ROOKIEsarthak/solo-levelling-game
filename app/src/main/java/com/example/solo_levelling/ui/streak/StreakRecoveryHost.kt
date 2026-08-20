@@ -147,21 +147,16 @@ fun StreakRecoveryHost(
                         )
                     }
                     RecoveryPhase.Continue -> {
-                        Row(
+                        DiagnosticStat(
+                            label = "Previous streak",
+                            value = "${event.previousStreak}d",
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            DiagnosticStat(
-                                label = "Previous streak",
-                                value = "${event.previousStreak}d",
-                                modifier = Modifier.weight(1f),
-                            )
-                            DiagnosticStat(
-                                label = "Previous best",
-                                value = "${event.best}d",
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
+                        )
+                        DiagnosticStat(
+                            label = "Previous best",
+                            value = "${event.best}d",
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                         GlassSurface(level = GlassLevel.Level1) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(

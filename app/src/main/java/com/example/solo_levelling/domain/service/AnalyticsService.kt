@@ -5,6 +5,7 @@ import com.example.solo_levelling.core.time.AppClock
 import com.example.solo_levelling.data.db.JsonDatabase
 import com.example.solo_levelling.data.db.entity.XpLedgerEntryEntity
 import com.example.solo_levelling.domain.model.AttributeCode
+import com.example.solo_levelling.domain.logic.MealCompletionPolicy
 import java.time.DayOfWeek
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -44,6 +45,9 @@ data class WeeklyReview(
     val personalScore: Int,
     val recommendations: List<String>,
     val modules: EnabledModules,
+    val careerXp: Int? = null,
+    val workoutXp: Int? = null,
+    val dietXp: Int? = null,
 )
 
 data class AdaptiveSuggestion(
@@ -117,6 +121,7 @@ class AnalyticsService(
         val weekEnd = weekStart.plusDays(6)
         val startStr = weekStart.format(dateFmt)
         val endStr = weekEnd.format(dateFmt)
+        val workoutEndStr = minOf(weekEnd, today).format(dateFmt)
         val modules = resolveModules()
         val (completed, total) = countQuestsInRange(startStr, endStr, modules)
         val startMs = weekStart.atStartOfDay(zone).toInstant().toEpochMilli()
@@ -124,8 +129,8 @@ class AnalyticsService(
         val xp = sumXpInRange(startMs, endMs, modules)
         val rate = completionRate(completed, total)
         val dsaSolved = if (modules.career) db.moduleDao().countDsaSolvedInRange(startMs, endMs) else null
-        val workoutCount = if (modules.workout) db.moduleDao().countWorkoutsInRange(startStr, endStr) else null
-        val workoutDays = if (modules.workout) db.moduleDao().countWorkoutDaysInRange(startStr, endStr) else null
+        val workoutCount = if (modules.workout) db.moduleDao().countWorkoutsInRange(startStr, workoutEndStr) else null
+        val workoutDays = if (modules.workout) db.moduleDao().countWorkoutDaysInRange(startStr, workoutEndStr) else null
         val streak = db.playerDao().getStreak(SystemDefaults.PLAYER_ID)?.current ?: 0
         val personalScore = personalScore(
             rate,
@@ -165,17 +170,49 @@ class AnalyticsService(
             personalScore = personalScore,
             recommendations = recommendations,
             modules = modules,
+            careerXp = if (modules.career) sumModuleXpInRange(startMs, endMs, modules, ModuleId.CAREER) else null,
+            workoutXp = if (modules.workout) sumModuleXpInRange(startMs, endMs, modules, ModuleId.WORKOUT) else null,
+            dietXp = if (modules.diet) sumModuleXpInRange(startMs, endMs, modules, ModuleId.DIET) else null,
         )
     }
 
-    suspend fun exportJson(): String {
+    suspend fun exportJson(): String = exportActiveJson()
+
+    /** Active gameplay export: enabled-module ledger, attributes, and achievements only. */
+    suspend fun exportActiveJson(): String {
         val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
+        val modules = resolveModules()
+        val reader = ActiveProgressionReader(db)
+        val attrs = reader.activeAttributes(modules)
+        val ledger = reader.activeLedger(modules)
+        val achievements = db.achievementDao().getUnlocked().filter { unlocked ->
+            val def = db.achievementDao().getDefs().find { it.key == unlocked.achievementKey }
+            def == null || ModuleScope.allowsAchievement(def.criteriaType, modules, def.key)
+        }
+        return buildExportJson(profile, modules, attrs, ledger, achievements, exportMode = "active")
+    }
+
+    /** Full archive export: all stored history regardless of module flags. */
+    suspend fun exportArchiveJson(): String {
+        val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
+        val modules = resolveModules()
         val attrs = db.playerDao().getAttributes()
         val ledger = db.xpDao().getAllLedger()
         val achievements = db.achievementDao().getUnlocked()
-        val modules = resolveModules()
+        return buildExportJson(profile, modules, attrs, ledger, achievements, exportMode = "archive")
+    }
+
+    private fun buildExportJson(
+        profile: com.example.solo_levelling.data.db.entity.PlayerProfileEntity?,
+        modules: EnabledModules,
+        attrs: List<com.example.solo_levelling.data.db.entity.AttributeStatEntity>,
+        ledger: List<com.example.solo_levelling.data.db.entity.XpLedgerEntryEntity>,
+        achievements: List<com.example.solo_levelling.data.db.entity.PlayerAchievementEntity>,
+        exportMode: String,
+    ): String {
         val root = JSONObject()
         root.put("exportedAt", clock.nowEpochMs())
+        root.put("exportMode", exportMode)
         root.put(
             "enabledModules",
             JSONObject()
@@ -229,16 +266,18 @@ class AnalyticsService(
         streakForScore: Int,
     ): PeriodScore {
         val zone = playerZone()
+        val today = clock.today(zone)
         val startStr = start.format(dateFmt)
         val endStr = end.format(dateFmt)
+        val workoutEndStr = minOf(end, today).format(dateFmt)
         val modules = resolveModules()
         val (completed, total) = countQuestsInRange(startStr, endStr, modules)
         val rate = completionRate(completed, total)
         val startMs = start.atStartOfDay(zone).toInstant().toEpochMilli()
         val endMs = end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
         val dsaSolved = if (modules.career) db.moduleDao().countDsaSolvedInRange(startMs, endMs) else null
-        val workoutCount = if (modules.workout) db.moduleDao().countWorkoutsInRange(startStr, endStr) else null
-        val workoutDays = if (modules.workout) db.moduleDao().countWorkoutDaysInRange(startStr, endStr) else null
+        val workoutCount = if (modules.workout) db.moduleDao().countWorkoutsInRange(startStr, workoutEndStr) else null
+        val workoutDays = if (modules.workout) db.moduleDao().countWorkoutDaysInRange(startStr, workoutEndStr) else null
         val activeDays = estimateActiveDays(workoutDays ?: 0, completed, total, start, end)
         val score = personalScore(rate, streakForScore, workoutDays ?: 0, dsaSolved ?: 0, modules)
         return PeriodScore(
@@ -318,18 +357,17 @@ class AnalyticsService(
     suspend fun dietAdherencePercent(
         start: java.time.LocalDate,
         end: java.time.LocalDate,
-        calorieTarget: Int,
+        @Suppress("UNUSED_PARAMETER") calorieTarget: Int,
     ): Int? {
-        if (calorieTarget <= 0) return null
+        val clampedEnd = minOf(end, clock.today(playerZone()))
         var daysWithData = 0
         var adherentDays = 0
         var d = start
-        while (!d.isAfter(end)) {
-            val nutrition = db.moduleDao().getNutrition(d.format(dateFmt))
-            if (nutrition != null && nutrition.calories > 0) {
+        while (!d.isAfter(clampedEnd)) {
+            val log = db.moduleDao().getDietLog(d.format(dateFmt))
+            if (log != null && MealCompletionPolicy.countValidMeals(log) > 0) {
                 daysWithData++
-                val pct = nutrition.calories.toFloat() / calorieTarget * 100f
-                if (pct in 85f..115f) adherentDays++
+                if (MealCompletionPolicy.isMealTrackingComplete(log)) adherentDays++
             }
             d = d.plusDays(1)
         }
@@ -413,6 +451,24 @@ class AnalyticsService(
             .filter { it.createdAtEpochMs in startMs until endMs }
             .sumOf { entry ->
                 if (allowsXpEntry(entry, modules)) entry.amount else 0
+            }
+
+    private suspend fun sumModuleXpInRange(
+        startMs: Long,
+        endMs: Long,
+        modules: EnabledModules,
+        module: ModuleId,
+    ): Int =
+        db.xpDao().getAllLedger()
+            .filter { it.createdAtEpochMs in startMs until endMs }
+            .sumOf { entry ->
+                if (!allowsXpEntry(entry, modules)) {
+                    0
+                } else {
+                    val owner = ModuleScope.parseModuleFromMetadata(entry.metadataJson)
+                        ?: ModuleScope.moduleForSourceType(entry.sourceType)
+                    if (owner == module) entry.amount else 0
+                }
             }
 
     private suspend fun allowsXpEntry(
@@ -566,7 +622,7 @@ class AdaptiveService(
                     AttributeCode.WIS.name -> "Write a brief journal reflection"
                     AttributeCode.END.name -> if (modules.workout) "Hit a walking/step target" else null
                     AttributeCode.VIT.name -> if (modules.diet) {
-                        "Log nutrition once today"
+                        "Log today's meals"
                     } else if (modules.workout) {
                         "Complete today's workout"
                     } else {

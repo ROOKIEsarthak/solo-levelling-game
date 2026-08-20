@@ -25,14 +25,30 @@ class QuestGenerationService(
     private val dateFmt = DateTimeFormatter.ISO_LOCAL_DATE
 
     fun start() {
-        val s = scope ?: return
-        s.launch {
-            eventBus.events.collect { event ->
-                when (event) {
-                    is DomainEvent.QuestCompleted -> onQuestCompleted(event)
-                    is DomainEvent.QuestUndone -> onQuestUndone(event)
-                    else -> Unit
-                }
+        // Quest dependency unlock/lock is owned by PostQuestCompletionCoordinator.
+    }
+
+    suspend fun unlockDependentsAfterComplete(instanceId: Long) {
+        val instance = db.questDao().getInstance(instanceId) ?: return
+        val template = db.questDao().getTemplateById(instance.templateId) ?: return
+        val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
+        val modules = resolveModules(profile?.onboardingDone == true)
+        val dependents = db.questDao().getInstancesDependingOn(instance.scheduledDate, template.key)
+        for (dep in dependents) {
+            if (dep.status != QuestStatus.LOCKED.name) continue
+            val depTags = db.questDao().getTemplateById(dep.templateId)?.priorityTags.orEmpty()
+            if (!ModuleScope.allowsQuestTemplate(depTags, modules)) continue
+            db.questDao().updateInstance(dep.copy(status = QuestStatus.AVAILABLE.name))
+        }
+    }
+
+    suspend fun lockDependentsAfterUndo(instanceId: Long) {
+        val instance = db.questDao().getInstance(instanceId) ?: return
+        val template = db.questDao().getTemplateById(instance.templateId) ?: return
+        val dependents = db.questDao().getInstancesDependingOn(instance.scheduledDate, template.key)
+        for (dep in dependents) {
+            if (dep.status == QuestStatus.AVAILABLE.name) {
+                db.questDao().updateInstance(dep.copy(status = QuestStatus.LOCKED.name))
             }
         }
     }
@@ -40,15 +56,17 @@ class QuestGenerationService(
     suspend fun generateForToday(timezone: String = ZoneId.systemDefault().id) {
         val zone = runCatching { ZoneId.of(timezone) }.getOrDefault(ZoneId.systemDefault())
         val today = clock.today(zone)
+        val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
+        val modules = resolveModules(profile?.onboardingDone == true)
+        reconcileIncomplete(modules)
         generateForDate(today)
         generateWeeklyIfNeeded(today)
         generateMilestonesIfNeeded(today)
         val dateStr = today.format(dateFmt)
-        val profile = db.playerDao().getProfile(SystemDefaults.PLAYER_ID)
-        val modules = resolveModules(profile?.onboardingDone == true)
         val tagsById = db.questDao().getActiveTemplates().associate { it.id to it.priorityTags }
         val count = db.questDao().getInstancesForDate(dateStr).count { instance ->
-            ModuleScope.allowsQuestTemplate(tagsById[instance.templateId].orEmpty(), modules)
+            val tags = tagsById[instance.templateId] ?: return@count false
+            ModuleScope.allowsQuestTemplate(tags, modules)
         }
         eventBus.publish(DomainEvent.DailyQuestsReady(dateStr, count))
     }
@@ -161,28 +179,6 @@ class QuestGenerationService(
         }
     }
 
-    private suspend fun onQuestCompleted(event: DomainEvent.QuestCompleted) {
-        val instance = db.questDao().getInstance(event.instanceId) ?: return
-        val template = db.questDao().getTemplateById(instance.templateId) ?: return
-        val dependents = db.questDao().getInstancesDependingOn(instance.scheduledDate, template.key)
-        for (dep in dependents) {
-            if (dep.status == QuestStatus.LOCKED.name) {
-                db.questDao().updateInstance(dep.copy(status = QuestStatus.AVAILABLE.name))
-            }
-        }
-    }
-
-    private suspend fun onQuestUndone(event: DomainEvent.QuestUndone) {
-        val instance = db.questDao().getInstance(event.instanceId) ?: return
-        val template = db.questDao().getTemplateById(instance.templateId) ?: return
-        val dependents = db.questDao().getInstancesDependingOn(instance.scheduledDate, template.key)
-        for (dep in dependents) {
-            if (dep.status == QuestStatus.AVAILABLE.name) {
-                db.questDao().updateInstance(dep.copy(status = QuestStatus.LOCKED.name))
-            }
-        }
-    }
-
     private suspend fun resolveStatus(dependsOnTemplateKey: String, date: String): String {
         if (dependsOnTemplateKey.isBlank()) return QuestStatus.AVAILABLE.name
         val depTemplate = db.questDao().getTemplateByKey(dependsOnTemplateKey) ?: return QuestStatus.LOCKED.name
@@ -208,13 +204,31 @@ class QuestGenerationService(
         return completed.toFloat() / instances.size.toFloat()
     }
 
-    private suspend fun resolveModules(onboardingDone: Boolean): EnabledModules =
-        ModuleFlags.resolve(
+    private suspend fun reconcileIncomplete(modules: EnabledModules) {
+        val templatesById = db.questDao().getActiveTemplates().associateBy { it.id }
+        val incomplete = setOf(
+            QuestStatus.AVAILABLE.name,
+            QuestStatus.IN_PROGRESS.name,
+            QuestStatus.LOCKED.name,
+        )
+        for (instance in db.questDao().getAllInstances()) {
+            if (instance.status !in incomplete) continue
+            val template = templatesById[instance.templateId]
+            if (template == null || !ModuleScope.allowsQuestTemplate(template.priorityTags, modules)) {
+                db.questDao().deleteInstance(instance.id)
+            }
+        }
+    }
+
+    private suspend fun resolveModules(onboardingDone: Boolean): EnabledModules {
+        val flags = ModuleFlags.resolve(
             onboardingDone = onboardingDone,
             career = db.configDao().get(ModuleFlags.KEY_CAREER)?.value,
             workout = db.configDao().get(ModuleFlags.KEY_WORKOUT)?.value,
             diet = db.configDao().get(ModuleFlags.KEY_DIET)?.value,
         )
+        return eligibleModules(db, flags)
+    }
 
     private fun filterByModules(
         templates: List<com.example.solo_levelling.data.db.entity.QuestTemplateEntity>,

@@ -25,8 +25,6 @@ class NotificationHandler(
                         SystemNotifier.notify(context, "Rank Up!", "New rank: ${event.newRank}")
                     is DomainEvent.AchievementUnlocked ->
                         SystemNotifier.notify(context, "Achievement Unlocked", event.key)
-                    is DomainEvent.RecoveryQuestAvailable ->
-                        SystemNotifier.notify(context, "Recovery Quest", "Complete a recovery quest to restore your streak")
                     is DomainEvent.DailyQuestsReady ->
                         SystemNotifier.notify(context, "Daily Quests Ready", "${event.count} quests available for ${event.date}")
                     is DomainEvent.BossCompleted ->

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +40,9 @@ import com.example.solo_levelling.ui.theme.CyanAura
 import com.example.solo_levelling.ui.theme.JetBrainsMono
 import com.example.solo_levelling.ui.theme.SovereignShape
 import com.example.solo_levelling.ui.theme.Spacing
+import com.example.solo_levelling.ui.theme.SystemBackground
+import com.example.solo_levelling.ui.theme.SystemError
+import com.example.solo_levelling.ui.theme.SystemOnPrimary
 import com.example.solo_levelling.ui.theme.SystemPrimary
 import com.example.solo_levelling.ui.theme.SystemPrimaryContainer
 import com.example.solo_levelling.ui.theme.SystemSecondary
@@ -64,6 +68,7 @@ fun GlassSurface(
     }
     Column(
         modifier = modifier
+            .fillMaxWidth()
             .clip(RoundedCornerShape(cornerRadius))
             .background(bg)
             .border(1.dp, SystemPrimary.copy(alpha = borderAlpha), RoundedCornerShape(cornerRadius))
@@ -108,9 +113,10 @@ fun SystemActionButton(
     primary: Boolean = true,
     enabled: Boolean = true,
     bracketed: Boolean = false,
+    destructive: Boolean = false,
 ) {
     val text = displayLabel(label, bracketed)
-    if (primary) {
+    if (primary && !destructive) {
         Button(
             onClick = onClick,
             enabled = enabled,
@@ -118,7 +124,7 @@ fun SystemActionButton(
             shape = SovereignShape.button,
             colors = ButtonDefaults.buttonColors(
                 containerColor = SystemPrimaryContainer,
-                contentColor = Color(0xFF05070D),
+                contentColor = SystemOnPrimary,
                 disabledContainerColor = SystemPrimaryContainer.copy(alpha = 0.4f),
             ),
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
@@ -131,13 +137,14 @@ fun SystemActionButton(
             )
         }
     } else {
+        val accent = if (destructive) SystemError else SystemPrimary
         OutlinedButton(
             onClick = onClick,
             enabled = enabled,
             modifier = modifier,
             shape = SovereignShape.button,
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = SystemPrimary),
-            border = BorderStroke(1.dp, SystemPrimary.copy(alpha = 0.5f)),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = accent),
+            border = BorderStroke(1.dp, accent.copy(alpha = 0.5f)),
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
         ) {
             Text(
@@ -148,6 +155,57 @@ fun SystemActionButton(
             )
         }
     }
+}
+
+@Composable
+fun SystemConfirmDialog(
+    title: String,
+    explanation: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+    consequence: String = "",
+    confirmLabel: String = "Confirm",
+    cancelLabel: String = "Cancel",
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+        title = {
+            Text(
+                text = bracketize(title),
+                fontFamily = JetBrainsMono,
+                color = SystemError,
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                Text(
+                    explanation,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                if (consequence.isNotBlank()) {
+                    Text(
+                        consequence,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            SystemActionButton(
+                label = confirmLabel,
+                onClick = onConfirm,
+                primary = false,
+                destructive = true,
+            )
+        },
+        dismissButton = {
+            GhostTextButton(label = cancelLabel, onClick = onDismiss)
+        },
+    )
 }
 
 @Composable
@@ -255,7 +313,7 @@ fun EnergyFieldBackground(modifier: Modifier = Modifier) {
                     colors = listOf(
                         CyanAura,
                         SystemSecondary.copy(alpha = 0.12f),
-                        Color(0xFF05070D),
+                        SystemBackground,
                     ),
                 ),
             ),
@@ -498,6 +556,9 @@ fun MissionQuestCard(
     primaryLabel: String = "Complete",
     deemphasized: Boolean = false,
     onUndo: (() -> Unit)? = null,
+    requirementSummary: String = "",
+    completedAtEpochMs: Long? = null,
+    nowEpochMs: Long = System.currentTimeMillis(),
 ) {
     val completed = status == "COMPLETED"
     val locked = status == "LOCKED"
@@ -548,6 +609,14 @@ fun MissionQuestCard(
                     color = SystemSecondary,
                 )
             }
+            if (requirementSummary.isNotBlank() && !completed) {
+                Text(
+                    requirementSummary,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = JetBrainsMono,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             if (verificationType != "MANUAL" && !completed) {
                 Text(
                     "Verify: $verificationType ${verificationTarget.toInt()} $verificationUnit",
@@ -568,8 +637,15 @@ fun MissionQuestCard(
                     fontWeight = FontWeight.Medium,
                 )
                 when {
-                    !completed && !locked -> SystemActionButton(label = primaryLabel, onClick = onPrimary)
-                    completed && onUndo != null -> SystemActionButton(label = "Undo", onClick = onUndo, primary = false)
+                    !completed && !locked && primaryLabel.isNotBlank() ->
+                        SystemActionButton(label = primaryLabel, onClick = onPrimary)
+                    completed && onUndo != null && isQuestUndoAvailable(type, status, completedAtEpochMs, nowEpochMs) ->
+                        SystemActionButton(
+                            label = "Undo completion",
+                            onClick = onUndo,
+                            primary = false,
+                            destructive = true,
+                        )
                 }
             }
         }

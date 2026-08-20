@@ -29,4 +29,11 @@ class QuestsScreenCopyTest {
         assertEquals("Weekly", QuestTab.WEEKLY.displayLabel())
         assertEquals("Bosses", QuestTab.BOSSES.displayLabel())
     }
+
+    @Test
+    fun p_undoSnackbar_isRecordedProgressLanguage() {
+        assertEquals("Completion reversed.", SystemMessages.COMPLETION_REVERSED)
+        assertFalse(SystemMessages.COMPLETION_REVERSED.contains("undone", ignoreCase = true))
+        assertFalse(SystemMessages.COMPLETION_REVERSED.contains("no problem", ignoreCase = true))
+    }
 }

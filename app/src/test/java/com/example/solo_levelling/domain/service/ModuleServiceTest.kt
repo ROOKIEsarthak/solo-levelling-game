@@ -118,14 +118,16 @@ class ModuleServiceTest {
         assertNotNull(log)
         assertEquals(2100, log!!.calories)
         assertEquals(150, log.protein)
-        assertTrue(progression.award("NUTRITION", "nutrition_2026-08-15", 15) is AwardResult.AlreadyAwarded)
+        assertTrue(
+            progression.award("NUTRITION", "nutrition_2026-08-15", 15) is AwardResult.Success,
+        )
     }
 
     @Test
     fun p_saveRoutineAndLogSets_persistsIndependently() = runTest {
         seedProfile()
         service.saveRoutineDay(
-            "monday",
+            "saturday",
             WorkoutDayPlanEntity(
                 enabled = true,
                 name = "Chest + Triceps",
@@ -140,13 +142,13 @@ class ModuleServiceTest {
                 ),
             ),
         )
-        assertEquals("Chest + Triceps", service.getWorkoutRoutine().monday.name)
+        assertEquals("Chest + Triceps", service.getWorkoutRoutine().saturday.name)
 
-        val started = service.startOrGetWorkoutLog("2026-08-17")
+        val started = service.startOrGetWorkoutLog("2026-08-15")
         assertEquals("Chest + Triceps", started.workoutName)
         val planned = started.exercises.first { it.name == "Bench Press" }
         service.upsertLoggedExercise(
-            "2026-08-17",
+            "2026-08-15",
             planned.copy(
                 sets = listOf(
                     LoggedSetEntity(60f, 10),
@@ -155,42 +157,42 @@ class ModuleServiceTest {
                 ),
             ),
         )
-        val log = db.moduleDao().getWorkoutLog("2026-08-17")!!
+        val log = db.moduleDao().getWorkoutLog("2026-08-15")!!
         assertEquals(1, log.exercises.size)
         assertEquals(3, log.exercises.first().sets.size)
         assertEquals(65f, log.exercises.first().sets[2].weight)
         assertTrue(
-            progression.award("WORKOUT", "workout_2026-08-17", 40) is AwardResult.AlreadyAwarded,
+            progression.award("WORKOUT", "workout_2026-08-15", 40) is AwardResult.AlreadyAwarded,
         )
     }
 
     @Test
     fun n_deleteWorkoutLog_removesFileAndMemory() = runTest {
         seedProfile()
-        service.upsertWorkoutLog(WorkoutLogEntity(date = "2026-08-17", workoutName = "Legs"))
-        service.deleteWorkoutLog("2026-08-17")
-        assertNull(db.moduleDao().getWorkoutLog("2026-08-17"))
+        service.upsertWorkoutLog(WorkoutLogEntity(date = "2026-08-15", workoutName = "Legs"))
+        service.deleteWorkoutLog("2026-08-15")
+        assertNull(db.moduleDao().getWorkoutLog("2026-08-15"))
     }
 
     @Test
     fun e_dietTotals_sumOptionalMacros() = runTest {
         seedProfile()
-        val mealId = service.addMeal("2026-08-17", "Breakfast")
+        val mealId = service.addMeal("2026-08-15", "Breakfast")
         service.upsertFood(
-            "2026-08-17",
+            "2026-08-15",
             mealId,
             FoodItemEntity(name = "Oats", quantity = 60f, unit = "g", calories = 228, protein = 8, carbs = 40, fat = 4),
         )
         service.upsertFood(
-            "2026-08-17",
+            "2026-08-15",
             mealId,
             FoodItemEntity(name = "Banana"),
         )
-        val diet = db.moduleDao().getDietLog("2026-08-17")!!
+        val diet = db.moduleDao().getDietLog("2026-08-15")!!
         assertEquals(228, diet.dailyTotals.calories)
         assertEquals(8, diet.dailyTotals.protein)
         assertEquals(2, diet.meals.first().foods.size)
-        val nutrition = db.moduleDao().getNutrition("2026-08-17")
+        val nutrition = db.moduleDao().getNutrition("2026-08-15")
         assertEquals(228, nutrition!!.calories)
     }
 
@@ -221,24 +223,42 @@ class ModuleServiceTest {
     @Test
     fun n_addMeal_emptyFoods_doesNotAwardNutritionXp() = runTest {
         seedProfile()
-        service.addMeal("2026-08-17", "Empty")
+        service.addMeal("2026-08-15", "Empty")
         assertEquals(0, db.playerDao().getProfile(1)!!.totalXp)
         assertTrue(
-            progression.award("NUTRITION", "nutrition_2026-08-17", 15) is AwardResult.Success,
+            progression.award("NUTRITION", "nutrition_2026-08-15", 15) is AwardResult.Success,
         )
     }
 
     @Test
-    fun p_upsertFood_awardsNutritionXp() = runTest {
+    fun p_upsertFood_awardsNutritionXpAtThirdMeal() = runTest {
         seedProfile()
-        val mealId = service.addMeal("2026-08-17", "Breakfast")
+        db.configDao().upsert(
+            com.example.solo_levelling.data.db.entity.UserConfigEntity("module_diet", "true"),
+        )
+        val breakfast = service.addMeal("2026-08-15", "Breakfast")
         service.upsertFood(
-            "2026-08-17",
-            mealId,
+            "2026-08-15",
+            breakfast,
             FoodItemEntity(name = "Oats", quantity = 60f, unit = "g", calories = 228, protein = 8),
         )
         assertTrue(
-            progression.award("NUTRITION", "nutrition_2026-08-17", 15) is AwardResult.AlreadyAwarded,
+            progression.award("NUTRITION", "nutrition_2026-08-15", 15) is AwardResult.Success,
+        )
+        val lunch = service.addMeal("2026-08-15", "Lunch")
+        service.upsertFood(
+            "2026-08-15",
+            lunch,
+            FoodItemEntity(name = "Rice", calories = 300, protein = 6),
+        )
+        val dinner = service.addMeal("2026-08-15", "Dinner")
+        service.upsertFood(
+            "2026-08-15",
+            dinner,
+            FoodItemEntity(name = "Chicken", calories = 400, protein = 35),
+        )
+        assertTrue(
+            progression.award("NUTRITION", "nutrition_2026-08-15", 15) is AwardResult.AlreadyAwarded,
         )
     }
 
@@ -247,14 +267,145 @@ class ModuleServiceTest {
         seedProfile()
         service.upsertWorkoutLog(
             WorkoutLogEntity(
-                date = "2026-08-17",
+                date = "2026-08-15",
                 workoutName = "Empty",
                 exercises = listOf(LoggedExerciseEntity(name = "Squat")),
             ),
         )
         assertEquals(0, db.playerDao().getProfile(1)!!.totalXp)
         assertTrue(
-            progression.award("WORKOUT", "workout_2026-08-17", 40) is AwardResult.Success,
+            progression.award("WORKOUT", "workout_2026-08-15", 40) is AwardResult.Success,
         )
+    }
+
+    @Test
+    fun n_upsertWorkoutLog_futureDate_doesNotPersistOrAward() = runTest {
+        seedProfile()
+        service.upsertWorkoutLog(
+            WorkoutLogEntity(
+                date = "2026-08-17",
+                workoutName = "Future",
+                exercises = listOf(
+                    LoggedExerciseEntity(name = "Squat", sets = listOf(LoggedSetEntity(60f, 5))),
+                ),
+            ),
+        )
+        assertNull(db.moduleDao().getWorkoutLog("2026-08-17"))
+        assertEquals(0, db.playerDao().getProfile(1)!!.totalXp)
+    }
+
+    @Test
+    fun n_upsertWorkoutLog_pastDate_doesNotPersistOrAward() = runTest {
+        seedProfile()
+        service.upsertWorkoutLog(
+            WorkoutLogEntity(
+                date = "2026-08-14",
+                workoutName = "Yesterday",
+                exercises = listOf(
+                    LoggedExerciseEntity(name = "Squat", sets = listOf(LoggedSetEntity(60f, 5))),
+                ),
+            ),
+        )
+        assertNull(db.moduleDao().getWorkoutLog("2026-08-14"))
+        assertEquals(0, db.playerDao().getProfile(1)!!.totalXp)
+    }
+
+    @Test
+    fun n_addMeal_futureDate_doesNotPersist() = runTest {
+        seedProfile()
+        val id = service.addMeal("2026-08-17", "Breakfast")
+        assertEquals(0L, id)
+        assertNull(db.moduleDao().getDietLog("2026-08-17"))
+    }
+
+    @Test
+    fun n_startOrGetWorkoutLog_pastDate_doesNotCreateFile() = runTest {
+        seedProfile()
+        val draft = service.startOrGetWorkoutLog("2026-08-14")
+        assertEquals("2026-08-14", draft.date)
+        assertNull(db.moduleDao().getWorkoutLog("2026-08-14"))
+    }
+
+    @Test
+    fun n_deleteWorkoutLog_pastDate_leavesExistingRecord() = runTest {
+        seedProfile()
+        db.moduleDao().upsertWorkoutLog(WorkoutLogEntity(date = "2026-08-14", workoutName = "Old"))
+        service.deleteWorkoutLog("2026-08-14")
+        assertNotNull(db.moduleDao().getWorkoutLog("2026-08-14"))
+    }
+
+    @Test
+    fun r_deleteWorkoutLog_reversesModuleXp() = runTest {
+        seedProfile()
+        service.upsertWorkoutLog(
+            WorkoutLogEntity(
+                date = "2026-08-15",
+                workoutName = "Push",
+                exercises = listOf(
+                    LoggedExerciseEntity(name = "Bench", sets = listOf(LoggedSetEntity(60f, 8))),
+                ),
+            ),
+        )
+        assertTrue(db.playerDao().getProfile(1)!!.totalXp > 0)
+        service.deleteWorkoutLog("2026-08-15")
+        assertNull(db.moduleDao().getWorkoutLog("2026-08-15"))
+        assertEquals(0, db.playerDao().getProfile(1)!!.totalXp)
+        assertEquals(1, db.xpDao().getAllLedger().count { it.sourceType == "WORKOUT_UNDO" })
+    }
+
+    @Test
+    fun p_relogWorkoutAfterDelete_awardsAgain() = runTest {
+        seedProfile()
+        val log = WorkoutLogEntity(
+            date = "2026-08-15",
+            workoutName = "Push",
+            exercises = listOf(
+                LoggedExerciseEntity(name = "Bench", sets = listOf(LoggedSetEntity(60f, 8))),
+            ),
+        )
+        service.upsertWorkoutLog(log)
+        service.deleteWorkoutLog("2026-08-15")
+        service.upsertWorkoutLog(log)
+        assertEquals(40, db.playerDao().getProfile(1)!!.totalXp)
+        assertEquals(2, db.xpDao().getAllLedger().count { it.sourceType == "WORKOUT" && it.amount > 0 })
+    }
+
+    @Test
+    fun r_deleteLastFood_reversesNutritionXp() = runTest {
+        seedProfile()
+        db.configDao().upsert(
+            com.example.solo_levelling.data.db.entity.UserConfigEntity("module_diet", "true"),
+        )
+        val breakfast = service.addMeal("2026-08-15", "Breakfast")
+        service.upsertFood("2026-08-15", breakfast, FoodItemEntity(name = "Oats", calories = 200, protein = 8))
+        val lunch = service.addMeal("2026-08-15", "Lunch")
+        service.upsertFood("2026-08-15", lunch, FoodItemEntity(name = "Rice", calories = 200, protein = 4))
+        val dinner = service.addMeal("2026-08-15", "Dinner")
+        service.upsertFood("2026-08-15", dinner, FoodItemEntity(name = "Chicken", calories = 300, protein = 30))
+        assertEquals(15, db.playerDao().getProfile(1)!!.totalXp)
+        val saved = db.moduleDao().getDietLog("2026-08-15")!!.meals.first { it.name == "Dinner" }.foods.first()
+        service.deleteFood("2026-08-15", dinner, saved.id)
+        assertEquals(0, db.playerDao().getProfile(1)!!.totalXp)
+        assertEquals(1, db.xpDao().getAllLedger().count { it.sourceType == "NUTRITION_UNDO" })
+    }
+
+    @Test
+    fun e_deleteOneFood_keepsNutritionXpWhenFoodRemains() = runTest {
+        seedProfile()
+        db.configDao().upsert(
+            com.example.solo_levelling.data.db.entity.UserConfigEntity("module_diet", "true"),
+        )
+        val breakfast = service.addMeal("2026-08-15", "Breakfast")
+        service.upsertFood("2026-08-15", breakfast, FoodItemEntity(name = "Oats", calories = 200, protein = 8))
+        val lunch = service.addMeal("2026-08-15", "Lunch")
+        service.upsertFood("2026-08-15", lunch, FoodItemEntity(name = "Rice", calories = 200, protein = 4))
+        service.upsertFood("2026-08-15", lunch, FoodItemEntity(name = "Chicken", calories = 300, protein = 25))
+        val dinner = service.addMeal("2026-08-15", "Dinner")
+        service.upsertFood("2026-08-15", dinner, FoodItemEntity(name = "Fish", calories = 250, protein = 30))
+        assertEquals(15, db.playerDao().getProfile(1)!!.totalXp)
+        val foods = db.moduleDao().getDietLog("2026-08-15")!!.meals.first { it.name == "Lunch" }.foods
+        service.deleteFood("2026-08-15", lunch, foods.first().id)
+        assertEquals(15, db.playerDao().getProfile(1)!!.totalXp)
+        assertEquals(0, db.xpDao().getAllLedger().count { it.sourceType == "NUTRITION_UNDO" })
     }
 }

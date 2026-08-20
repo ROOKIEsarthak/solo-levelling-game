@@ -1,6 +1,7 @@
 package com.example.solo_levelling.ui.dashboard
 
 import com.example.solo_levelling.domain.copy.SystemMessages
+import com.example.solo_levelling.domain.service.MilestoneVerificationResult
 import com.example.solo_levelling.domain.service.QuestCompletionService
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -54,6 +55,30 @@ class QuestCompletionUserMessageTest {
         assertEquals(
             "This quest belongs to a disabled module",
             questCompletionUserMessage(QuestCompletionService.Result.ModuleDisabled),
+        )
+    }
+
+    @Test
+    fun n_requirementsIncomplete_doesNotClaimCompletion() {
+        val msg = questCompletionUserMessage(
+            QuestCompletionService.Result.RequirementsIncomplete(
+                MilestoneVerificationResult(
+                    ready = false,
+                    completedCount = 1,
+                    totalCount = 3,
+                    requirements = emptyList(),
+                ),
+            ),
+        )
+        assertEquals("Complete remaining requirements first", msg)
+        assertFalse(msg.contains("Undo", ignoreCase = true))
+    }
+
+    @Test
+    fun n_wrongDay_usesSystemDateCopy() {
+        assertEquals(
+            SystemMessages.DATE_QUEST_WRONG_DAY,
+            questCompletionUserMessage(QuestCompletionService.Result.WrongDay),
         )
     }
 }

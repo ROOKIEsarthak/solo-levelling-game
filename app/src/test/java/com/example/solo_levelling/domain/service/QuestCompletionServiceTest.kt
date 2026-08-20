@@ -2,6 +2,7 @@ package com.example.solo_levelling.domain.service
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.example.solo_levelling.core.config.SystemDefaults
 import com.example.solo_levelling.core.event.DomainEvent
 import com.example.solo_levelling.core.event.EventBus
 import com.example.solo_levelling.core.time.FakeAppClock
@@ -9,6 +10,7 @@ import com.example.solo_levelling.data.db.JsonDatabase
 import com.example.solo_levelling.data.db.entity.AttributeStatEntity
 import com.example.solo_levelling.data.db.entity.PlayerProfileEntity
 import com.example.solo_levelling.data.db.entity.QuestInstanceEntity
+import com.example.solo_levelling.data.db.entity.QuestTemplateEntity
 import com.example.solo_levelling.domain.model.AttributeCode
 import com.example.solo_levelling.domain.model.QuestStatus
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -17,6 +19,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -41,9 +44,19 @@ class QuestCompletionServiceTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         db = JsonDatabase(File(context.cacheDir, "test-db-${System.nanoTime()}").also { it.mkdirs() })
         eventBus = EventBus()
-        clock = FakeAppClock(fixedDate = LocalDate.of(2026, 8, 15))
+        clock = FakeAppClock(
+            epochMs = LocalDate.of(2026, 8, 15).atStartOfDay(java.time.ZoneOffset.UTC)
+                .toInstant().toEpochMilli() + 3_600_000,
+            fixedDate = LocalDate.of(2026, 8, 15),
+        )
         progression = ProgressionService(db, eventBus, clock)
-        service = QuestCompletionService(db, eventBus, clock, progression)
+        service = QuestCompletionService(
+            db,
+            eventBus,
+            clock,
+            progression,
+            MilestoneVerificationService(db, progression),
+        )
     }
 
     @After
@@ -51,7 +64,7 @@ class QuestCompletionServiceTest {
         db.close()
     }
 
-    private suspend fun seedInstance(xp: Int = 40): Long {
+    private suspend fun seedPlayer() {
         db.playerDao().upsertProfile(
             PlayerProfileEntity(
                 name = "Test",
@@ -63,6 +76,10 @@ class QuestCompletionServiceTest {
         db.playerDao().upsertAttributes(
             AttributeCode.entries.map { AttributeStatEntity(it.name) },
         )
+    }
+
+    private suspend fun seedInstance(xp: Int = 40): Long {
+        seedPlayer()
         return db.questDao().insertInstance(
             QuestInstanceEntity(
                 templateId = 1,
@@ -168,11 +185,185 @@ class QuestCompletionServiceTest {
     }
 
     @Test
-    fun n_undo_outsideWindowFails() = runTest {
+    fun p_undoPenaltyXp_zeroPercentIsZero() {
+        assertEquals(0, SystemDefaults.undoPenaltyXp(40, 0))
+        assertEquals(0, SystemDefaults.undoPenaltyXp(40))
+    }
+
+    @Test
+    fun p_undoPenaltyXp_tenPercentRoundsDownWithMinOne() {
+        assertEquals(4, SystemDefaults.undoPenaltyXp(40, 10))
+        assertEquals(1, SystemDefaults.undoPenaltyXp(1, 10))
+        assertEquals(0, SystemDefaults.undoPenaltyXp(0, 10))
+        assertEquals(0, SystemDefaults.undoPenaltyXp(40, -5))
+    }
+
+    @Test
+    fun n_undo_secondCallDoesNotDeductAgain() = runTest {
+        val id = seedInstance(40)
+        service.complete(id)
+        assertTrue(service.undo(id))
+        assertEquals(false, service.undo(id))
+        assertEquals(0, db.playerDao().getProfile(1)!!.totalXp)
+        assertEquals(2, db.xpDao().getAllLedger().size)
+        assertEquals(0, db.xpDao().getAllLedger().count { it.sourceType == "QUEST_UNDO_PENALTY" })
+    }
+
+    @Test
+    fun p_undo_penaltyPercentAppliesOnce() = runTest {
+        val id = seedInstance(40)
+        service.complete(id)
+        assertTrue(service.undo(id, penaltyPercent = 10))
+        assertEquals(0, db.playerDao().getProfile(1)!!.totalXp)
+        assertEquals(1, db.xpDao().getAllLedger().count { it.sourceType == "QUEST_UNDO_PENALTY" })
+        assertEquals(-4, db.xpDao().getAllLedger().first { it.sourceType == "QUEST_UNDO_PENALTY" }.amount)
+        assertEquals(false, service.undo(id, penaltyPercent = 10))
+        assertEquals(1, db.xpDao().getAllLedger().count { it.sourceType == "QUEST_UNDO_PENALTY" })
+    }
+
+    @Test
+    fun e_undo_ignoreWindow_allowsDataInvalidation() = runTest {
         val id = seedInstance(40)
         service.complete(id)
         clock.epochMs += 16 * 60_000L
         assertEquals(false, service.undo(id))
         assertEquals(40, db.playerDao().getProfile(1)!!.totalXp)
+        assertTrue(service.undo(id, ignoreWindow = true))
+        assertEquals(QuestStatus.AVAILABLE.name, db.questDao().getInstance(id)!!.status)
+        assertEquals(0, db.playerDao().getProfile(1)!!.totalXp)
+    }
+
+    private suspend fun seedMilestone(requirementStatus: String): Pair<Long, Long> {
+        seedPlayer()
+        val workoutId = db.questDao().upsertTemplate(
+            QuestTemplateEntity(
+                key = "workout_daily",
+                type = "DAILY",
+                title = "Complete workout",
+                baseXp = 50,
+                attributeRewardsJson = "{}",
+                priorityTags = "module_workout",
+            ),
+        )
+        val reqId = db.questDao().insertInstance(
+            QuestInstanceEntity(
+                templateId = workoutId,
+                scheduledDate = "2026-08-15",
+                status = requirementStatus,
+                title = "Complete workout",
+                type = "DAILY",
+                baseXp = 50,
+                attributeRewardsJson = "{}",
+            ),
+        )
+        val milestoneTpl = db.questDao().upsertTemplate(
+            QuestTemplateEntity(
+                key = "first_week_complete",
+                type = "MILESTONE",
+                title = "First week complete",
+                baseXp = 150,
+                attributeRewardsJson = """{"DISC":80,"WIS":70}""",
+            ),
+        )
+        val milestoneId = db.questDao().insertInstance(
+            QuestInstanceEntity(
+                templateId = milestoneTpl,
+                scheduledDate = "2026-08-15",
+                status = QuestStatus.AVAILABLE.name,
+                title = "First week complete",
+                type = "MILESTONE",
+                baseXp = 150,
+                attributeRewardsJson = """{"DISC":80,"WIS":70}""",
+            ),
+        )
+        return milestoneId to reqId
+    }
+
+    @Test
+    fun n_completeMilestone_whenRequirementsIncomplete_doesNotPersist() = runTest {
+        val (milestoneId, _) = seedMilestone(QuestStatus.AVAILABLE.name)
+        val result = service.complete(milestoneId)
+        assertTrue(result is QuestCompletionService.Result.RequirementsIncomplete)
+        assertEquals(QuestStatus.AVAILABLE.name, db.questDao().getInstance(milestoneId)!!.status)
+        assertEquals(0, db.xpDao().getAllLedger().size)
+    }
+
+    @Test
+    fun p_completeMilestone_whenRequirementsComplete_persistsAndAwardsOnce() = runTest {
+        val (milestoneId, _) = seedMilestone(QuestStatus.COMPLETED.name)
+        val first = service.complete(milestoneId)
+        assertTrue(first is QuestCompletionService.Result.Completed)
+        assertEquals(QuestStatus.COMPLETED.name, db.questDao().getInstance(milestoneId)!!.status)
+        val xpRows = db.xpDao().getAllLedger().count { it.sourceType == "QUEST_INSTANCE" }
+        assertEquals(1, xpRows)
+
+        val second = service.complete(milestoneId)
+        assertEquals(QuestCompletionService.Result.AlreadyCompleted, second)
+        assertEquals(1, db.xpDao().getAllLedger().count { it.sourceType == "QUEST_INSTANCE" })
+    }
+
+    @Test
+    fun r_completeMilestone_hasNoUndo() = runTest {
+        val (milestoneId, _) = seedMilestone(QuestStatus.COMPLETED.name)
+        assertTrue(service.complete(milestoneId) is QuestCompletionService.Result.Completed)
+        assertFalse(service.undo(milestoneId))
+        assertEquals(QuestStatus.COMPLETED.name, db.questDao().getInstance(milestoneId)!!.status)
+        assertEquals(1, db.xpDao().getAllLedger().count { it.sourceType == "QUEST_INSTANCE" })
+    }
+
+    @Test
+    fun n_complete_yesterdayDaily_returnsWrongDay() = runTest {
+        seedPlayer()
+        val id = db.questDao().insertInstance(
+            QuestInstanceEntity(
+                templateId = 1,
+                scheduledDate = "2026-08-14",
+                status = QuestStatus.AVAILABLE.name,
+                title = "Yesterday workout",
+                type = "DAILY",
+                baseXp = 40,
+                attributeRewardsJson = "{}",
+            ),
+        )
+        assertEquals(QuestCompletionService.Result.WrongDay, service.complete(id))
+        assertEquals(QuestStatus.AVAILABLE.name, db.questDao().getInstance(id)!!.status)
+        assertEquals(0, db.playerDao().getProfile(1)!!.totalXp)
+    }
+
+    @Test
+    fun n_complete_tomorrowDaily_returnsWrongDay() = runTest {
+        seedPlayer()
+        val id = db.questDao().insertInstance(
+            QuestInstanceEntity(
+                templateId = 1,
+                scheduledDate = "2026-08-16",
+                status = QuestStatus.AVAILABLE.name,
+                title = "Tomorrow workout",
+                type = "DAILY",
+                baseXp = 40,
+                attributeRewardsJson = "{}",
+            ),
+        )
+        assertEquals(QuestCompletionService.Result.WrongDay, service.complete(id))
+        assertEquals(0, db.playerDao().getProfile(1)!!.totalXp)
+    }
+
+    @Test
+    fun p_complete_weeklyQuest_allowedDuringSameWeek() = runTest {
+        seedPlayer()
+        val id = db.questDao().insertInstance(
+            QuestInstanceEntity(
+                templateId = 1,
+                scheduledDate = "2026-08-16",
+                status = QuestStatus.AVAILABLE.name,
+                title = "Weekly review",
+                type = "WEEKLY",
+                baseXp = 80,
+                attributeRewardsJson = "{}",
+            ),
+        )
+        val result = service.complete(id)
+        assertTrue(result is QuestCompletionService.Result.Completed)
+        assertEquals(80, (result as QuestCompletionService.Result.Completed).xp)
     }
 }

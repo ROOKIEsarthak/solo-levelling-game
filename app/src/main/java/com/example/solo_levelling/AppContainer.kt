@@ -15,18 +15,20 @@ import com.example.solo_levelling.domain.handler.BossProgressHandler
 import com.example.solo_levelling.domain.handler.NotificationHandler
 import com.example.solo_levelling.domain.handler.SeasonHandler
 import com.example.solo_levelling.domain.handler.StreakHandler
-import com.example.solo_levelling.domain.handler.SyncOutboxHandler
 import com.example.solo_levelling.domain.port.CalendarPort
 import com.example.solo_levelling.domain.port.LocalMetricIngest
 import com.example.solo_levelling.domain.port.MetricIngestPort
 import com.example.solo_levelling.domain.port.NoOpCalendarPort
-import com.example.solo_levelling.domain.port.NoOpSyncTransport
-import com.example.solo_levelling.domain.port.SyncTransportPort
+import com.example.solo_levelling.domain.service.ActiveProgressionReader
 import com.example.solo_levelling.domain.service.AdaptiveService
 import com.example.solo_levelling.domain.service.AnalyticsService
+import com.example.solo_levelling.domain.service.DayBoundaryCoordinator
 import com.example.solo_levelling.domain.service.DayBoundaryService
+import com.example.solo_levelling.domain.service.MilestoneVerificationService
+import com.example.solo_levelling.domain.service.ModuleLifecycleService
 import com.example.solo_levelling.domain.service.ModuleService
 import com.example.solo_levelling.domain.service.OnboardingService
+import com.example.solo_levelling.domain.service.PostQuestCompletionCoordinator
 import com.example.solo_levelling.domain.service.ProgressionService
 import com.example.solo_levelling.domain.service.QuestCompletionService
 import com.example.solo_levelling.domain.service.QuestGenerationService
@@ -77,15 +79,41 @@ class AppContainer(context: Context) {
     val db: JsonDatabase = JsonDatabase(File(appContext.filesDir, "db"))
 
     val progression = ProgressionService(db, eventBus, clock)
-    val questCompletion = QuestCompletionService(db, eventBus, clock, progression)
-    val questVerification = QuestVerificationService(db, clock, questCompletion)
+    val milestoneVerification = MilestoneVerificationService(db, progression)
     val adaptive = AdaptiveService(db, clock)
     val season = SeasonService(db, clock)
     val questGeneration = QuestGenerationService(db, clock, eventBus, adaptive, scope)
+
+    private val streakHandler = StreakHandler(db, eventBus, clock, scope)
+    private val achievementHandler = AchievementHandler(db, eventBus, clock, progression, scope)
+    private val bossProgressHandler = BossProgressHandler(db, eventBus, progression, scope)
+    private val notificationHandler = NotificationHandler(appContext, eventBus, db, scope)
+    private val seasonHandler = SeasonHandler(eventBus, season, scope)
+
+    val postQuest = PostQuestCompletionCoordinator(
+        streakHandler = streakHandler,
+        bossProgressHandler = bossProgressHandler,
+        achievementHandler = achievementHandler,
+        questGeneration = questGeneration,
+        season = season,
+    )
+
+    val questCompletion = QuestCompletionService(
+        db,
+        eventBus,
+        clock,
+        progression,
+        milestoneVerification,
+        postQuest,
+    )
+    val questVerification = QuestVerificationService(db, clock, questCompletion)
     val onboarding = OnboardingService(db, clock, questGeneration, progression, season)
+    val moduleLifecycle = ModuleLifecycleService(db, clock, onboarding)
     val modules = ModuleService(db, eventBus, clock, progression, questVerification)
     val analytics = AnalyticsService(db, clock)
+    val activeProgression = ActiveProgressionReader(db)
     val dayBoundary = DayBoundaryService(db, eventBus, clock)
+    val dayBoundaryCoordinator = DayBoundaryCoordinator(db, clock, dayBoundary, questGeneration)
 
     val metricIngest: MetricIngestPort = LocalMetricIngest(db, clock) {
         val profile = db.playerDao().getProfile(com.example.solo_levelling.core.config.SystemDefaults.PLAYER_ID)
@@ -96,14 +124,6 @@ class AppContainer(context: Context) {
     }
 
     val calendarPort: CalendarPort = NoOpCalendarPort()
-    val syncTransport: SyncTransportPort = NoOpSyncTransport()
-
-    private val streakHandler = StreakHandler(db, eventBus, clock, scope)
-    private val achievementHandler = AchievementHandler(db, eventBus, clock, progression, scope)
-    private val bossProgressHandler = BossProgressHandler(db, eventBus, progression, scope)
-    private val notificationHandler = NotificationHandler(appContext, eventBus, db, scope)
-    private val syncOutboxHandler = SyncOutboxHandler(db, eventBus, clock, scope)
-    private val seasonHandler = SeasonHandler(eventBus, season, scope)
 
     fun start() {
         streakHandler.start()
@@ -111,7 +131,6 @@ class AppContainer(context: Context) {
         bossProgressHandler.start()
         questGeneration.start()
         notificationHandler.start()
-        syncOutboxHandler.start()
         seasonHandler.start()
         scope.launch {
             onboarding.ensureSeeded()
@@ -121,8 +140,10 @@ class AppContainer(context: Context) {
                 modules.ensureCareerCatalogsSeeded()
             }
             season.ensureActiveSeason()
+            dayBoundaryCoordinator.syncTimezoneFromDevice()
             val profile = db.playerDao().getProfile(com.example.solo_levelling.core.config.SystemDefaults.PLAYER_ID)
             if (profile?.onboardingDone == true) {
+                dayBoundaryCoordinator.runBoundaryIfNeeded(profile.timezone)
                 questGeneration.generateForToday(profile.timezone)
             }
         }

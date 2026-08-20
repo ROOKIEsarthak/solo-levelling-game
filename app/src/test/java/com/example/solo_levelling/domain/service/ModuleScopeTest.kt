@@ -10,7 +10,11 @@ class ModuleScopeTest {
     fun p_sourceTypeOwnership() {
         assertEquals(ModuleId.CAREER, ModuleScope.moduleForSourceType("DSA"))
         assertEquals(ModuleId.WORKOUT, ModuleScope.moduleForSourceType("WORKOUT"))
+        assertEquals(ModuleId.WORKOUT, ModuleScope.moduleForSourceType("WORKOUT_UNDO"))
         assertEquals(ModuleId.DIET, ModuleScope.moduleForSourceType("NUTRITION"))
+        assertEquals(ModuleId.DIET, ModuleScope.moduleForSourceType("NUTRITION_UNDO"))
+        assertEquals(ModuleId.GLOBAL, ModuleScope.moduleForSourceType("QUEST_UNDO"))
+        assertEquals(ModuleId.GLOBAL, ModuleScope.moduleForSourceType("QUEST_UNDO_PENALTY"))
         assertEquals(ModuleId.GLOBAL, ModuleScope.moduleForSourceType("FOCUS"))
         assertEquals(ModuleId.GLOBAL, ModuleScope.moduleForSourceType("JOURNAL"))
         assertEquals(ModuleId.GLOBAL, ModuleScope.moduleForSourceType("ACHIEVEMENT"))

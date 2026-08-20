@@ -1,12 +1,9 @@
 package com.example.solo_levelling.domain.service
 
-import android.content.Context
-import androidx.test.core.app.ApplicationProvider
 import com.example.solo_levelling.core.event.EventBus
 import com.example.solo_levelling.core.time.FakeAppClock
 import com.example.solo_levelling.data.db.JsonDatabase
 import com.example.solo_levelling.data.db.entity.AttributeStatEntity
-import com.example.solo_levelling.data.db.entity.LoggedExerciseEntity
 import com.example.solo_levelling.data.db.entity.LoggedSetEntity
 import com.example.solo_levelling.data.db.entity.PlayerProfileEntity
 import com.example.solo_levelling.data.db.entity.PlannedExerciseEntity
@@ -15,32 +12,36 @@ import com.example.solo_levelling.data.db.entity.UserConfigEntity
 import com.example.solo_levelling.data.db.entity.WorkoutDayPlanEntity
 import com.example.solo_levelling.data.db.entity.WorkoutRoutineEntity
 import com.example.solo_levelling.domain.model.AttributeCode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import java.io.File
+import java.nio.file.Files
 import java.time.LocalDate
 
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@OptIn(ExperimentalCoroutinesApi::class)
 class ModuleIsolationProgressionTest {
     private lateinit var db: JsonDatabase
     private lateinit var eventBus: EventBus
     private lateinit var clock: FakeAppClock
     private lateinit var progression: ProgressionService
     private lateinit var modules: ModuleService
+    private lateinit var tempDir: java.nio.file.Path
+    private val dispatcher = UnconfinedTestDispatcher()
 
     @Before
     fun setup() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        db = JsonDatabase(File(context.cacheDir, "test-db-${System.nanoTime()}").also { it.mkdirs() })
+        Dispatchers.setMain(dispatcher)
+        tempDir = Files.createTempDirectory("module-iso-")
+        db = JsonDatabase(tempDir.toFile())
         eventBus = EventBus()
         clock = FakeAppClock(
             epochMs = LocalDate.of(2026, 8, 15)
@@ -63,6 +64,8 @@ class ModuleIsolationProgressionTest {
     @After
     fun tearDown() {
         db.close()
+        tempDir.toFile().deleteRecursively()
+        Dispatchers.resetMain()
     }
 
     private suspend fun seed(modulesFlags: EnabledModules) {

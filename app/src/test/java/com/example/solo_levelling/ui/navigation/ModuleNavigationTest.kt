@@ -171,4 +171,59 @@ class ModuleNavigationTest {
         assertFalse(showBottomBarForRoute(AppRoute.SystemConsent.route))
         assertFalse(showBottomBarForRoute(AppRoute.SystemAnalysis.route))
     }
+
+    @Test
+    fun r_selectedPrimaryRoute_queryAndArgRoutesKeepParentTab() {
+        assertEquals(AppRoute.More.route, selectedPrimaryRoute("modules?section=journal"))
+        assertEquals(AppRoute.More.route, selectedPrimaryRoute("career/{tab}"))
+        assertEquals(AppRoute.More.route, selectedPrimaryRoute("fitness/today"))
+        assertEquals(AppRoute.Analytics.route, selectedPrimaryRoute("history/detail"))
+        assertEquals(AppRoute.Dashboard.route, selectedPrimaryRoute(AppRoute.Dashboard.route))
+        assertEquals(AppRoute.Character.route, selectedPrimaryRoute(AppRoute.Character.route))
+        assertFalse(selectedPrimaryRoute("modules?section=journal") == AppRoute.Dashboard.route)
+        assertFalse(selectedPrimaryRoute(AppRoute.Dashboard.route) == AppRoute.Character.route)
+    }
+
+    @Test
+    fun n_disabledCareerQueryRoute_redirectsToDashboard() {
+        val redirect = redirectForDisabledModuleRoute(
+            "career?tab=dsa",
+            EnabledModules(career = false, workout = true, diet = true),
+        )
+        assertEquals(AppRoute.Dashboard, redirect)
+    }
+
+    @Test
+    fun e_routePath_stripsQueryAndTemplates() {
+        assertEquals("modules", routePath("modules?section=journal"))
+        assertEquals("career", routePath("career/{tab}"))
+        assertEquals("", routePath(null))
+        assertEquals("", routePath(""))
+    }
+
+    @Test
+    fun n_showBottomBar_hidesModuleSetup() {
+        assertFalse(showBottomBarForRoute(AppRoute.ModuleSetup.route))
+        assertFalse(showBottomBarForRoute(moduleSetupRoute("diet")))
+    }
+
+    @Test
+    fun p_selectedPrimaryRoute_moduleSetupIsMore() {
+        assertEquals(AppRoute.More.route, selectedPrimaryRoute(moduleSetupRoute("career")))
+        assertEquals(AppRoute.More.route, selectedPrimaryRoute(AppRoute.ModuleSetup.route))
+    }
+
+    @Test
+    fun e_moduleSetup_doesNotRedirectWhenModulesDisabled() {
+        val redirect = redirectForDisabledModuleRoute(
+            moduleSetupRoute("career"),
+            EnabledModules(career = false, workout = true, diet = false),
+        )
+        assertNull(redirect)
+    }
+
+    @Test
+    fun p_selectedPrimaryRoute_homeAfterReturningFromSetup() {
+        assertEquals(AppRoute.Dashboard.route, selectedPrimaryRoute(AppRoute.Dashboard.route))
+    }
 }

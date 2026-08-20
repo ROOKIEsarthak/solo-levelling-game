@@ -153,25 +153,25 @@ fun CareerScreen(
                     onMessage = onMessage,
                     onAttempt = { id ->
                         scope.launch {
-                            container.modules.markAttempted(id)
+                            vm.markAttempted(id)
                             onMessage("Attempt logged")
                         }
                     },
                     onSolve = { id ->
                         scope.launch {
-                            container.modules.solveDsa(id)
+                            vm.solveDsa(id)
                             onMessage("Problem solved — XP awarded")
                         }
                     },
                     onMaster = { id ->
                         scope.launch {
-                            container.modules.masterDsa(id)
+                            vm.masterDsa(id)
                             onMessage("Problem mastered")
                         }
                     },
                     onAdd = { title, topic, difficulty ->
                         scope.launch {
-                            container.modules.addDsaProblem(title, difficulty, topic)
+                            vm.addDsaProblem(title, difficulty, topic)
                             onMessage("Problem added")
                         }
                     },
@@ -180,7 +180,7 @@ fun CareerScreen(
                     topics = systemDesignTopics,
                     onMarkConcept = { topicId, conceptId, nextStatus ->
                         scope.launch {
-                            container.modules.markSystemDesignConcept(topicId, conceptId, nextStatus)
+                            vm.markSystemDesignConcept(topicId, conceptId, nextStatus)
                             onMessage("Concept updated")
                         }
                     },

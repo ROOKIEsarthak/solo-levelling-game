@@ -69,4 +69,26 @@ class ModuleFlagsTest {
         assertTrue(ModuleFlags.needsMigration(null, "true", "true"))
         assertFalse(ModuleFlags.needsMigration("false", "false", "false"))
     }
+
+    @Test
+    fun p_lifecycleKeys_areStable() {
+        assertEquals("module_career_setup_completed", ModuleFlags.setupCompletedKey("career"))
+        assertEquals("module_workout_enabled_at_epoch_ms", ModuleFlags.enabledAtKey("workout"))
+        assertEquals("module_diet_disabled_at_epoch_ms", ModuleFlags.disabledAtKey("diet"))
+    }
+
+    @Test
+    fun p_withModule_togglesNamedFlag() {
+        val start = EnabledModules(career = true)
+        assertTrue(start.withModule("diet", true).diet)
+        assertFalse(start.withModule("career", false).career)
+        assertFalse(start.isEnabled("workout"))
+    }
+
+    @Test
+    fun e_displayName_usesProductLabels() {
+        assertEquals("Fitness", ModuleFlags.displayName("workout"))
+        assertEquals("Nutrition", ModuleFlags.displayName("diet"))
+        assertEquals("Career", ModuleFlags.displayName("career"))
+    }
 }

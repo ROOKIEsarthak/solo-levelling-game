@@ -6,6 +6,11 @@ import org.junit.Test
 
 class SystemDefaultsTest {
     @Test
+    fun p_defaultRequiredMealsPerDay_isThree() {
+        assertEquals(3, SystemDefaults.DEFAULT_REQUIRED_MEALS_PER_DAY)
+    }
+
+    @Test
     fun p_xpForNextLevel_usesNonlinearCurve() {
         assertEquals(100, SystemDefaults.xpForNextLevel(1))
         val level10 = SystemDefaults.xpForNextLevel(10)
@@ -64,12 +69,28 @@ class SystemDefaultsTest {
     }
 
     @Test
-    fun p_weeklyRecoveryLimit_isPositive() {
-        assertTrue(SystemDefaults.WEEKLY_RECOVERY_LIMIT > 0)
+    fun p_dailyXpCap_isPositive() {
+        assertEquals(500, SystemDefaults.DAILY_XP_CAP)
     }
 
     @Test
-    fun p_dailyXpCap_isPositive() {
-        assertEquals(500, SystemDefaults.DAILY_XP_CAP)
+    fun p_undoPenaltyXp_zeroPercentIsZero() {
+        assertEquals(0, SystemDefaults.UNDO_XP_PENALTY_PERCENT)
+        assertEquals(1, SystemDefaults.UNDO_XP_PENALTY_MIN)
+        assertEquals(0, SystemDefaults.undoPenaltyXp(40, 0))
+        assertEquals(0, SystemDefaults.undoPenaltyXp(40))
+    }
+
+    @Test
+    fun p_undoPenaltyXp_tenPercentRoundsDownWithMinOne() {
+        assertEquals(4, SystemDefaults.undoPenaltyXp(40, 10))
+        assertEquals(1, SystemDefaults.undoPenaltyXp(1, 10))
+    }
+
+    @Test
+    fun n_undoPenaltyXp_skipsNonPositiveInputs() {
+        assertEquals(0, SystemDefaults.undoPenaltyXp(0, 10))
+        assertEquals(0, SystemDefaults.undoPenaltyXp(40, -5))
+        assertEquals(0, SystemDefaults.undoPenaltyXp(-10, 10))
     }
 }

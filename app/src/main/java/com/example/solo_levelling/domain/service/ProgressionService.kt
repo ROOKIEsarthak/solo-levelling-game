@@ -93,7 +93,8 @@ class ProgressionService(
             return AwardResult.ModuleDisabled
         }
 
-        if (xpDao.findBySource(sourceType, sourceId) != null) return AwardResult.AlreadyAwarded
+        val actualSourceId = resolveAwardSourceId(sourceType, sourceId, xpDao.getAllLedger())
+            ?: return AwardResult.AlreadyAwarded
 
         val profile = playerDao.getProfile(SystemDefaults.PLAYER_ID)
             ?: return AwardResult.NoProfile
@@ -111,16 +112,17 @@ class ProgressionService(
         val now = clock.nowEpochMs()
         val oldLevel = profile.level
         val oldRank = profile.rank
-        val newTotal = profile.totalXp + xpToAward
+        val newTotal = (profile.totalXp + xpToAward).coerceAtLeast(0)
         val newLevel = SystemDefaults.levelFromTotalXp(newTotal)
         val newRank = SystemDefaults.rankForLevel(newLevel)
 
+        val ledgerMetadata = mergeAttrsIntoMetadata(metadataJson, attrs)
         val ledgerId = xpDao.insertLedger(
             XpLedgerEntryEntity(
                 amount = xpToAward,
                 sourceType = sourceType,
-                sourceId = sourceId,
-                metadataJson = metadataJson,
+                sourceId = actualSourceId,
+                metadataJson = ledgerMetadata,
                 createdAtEpochMs = now,
             ),
         )
@@ -144,7 +146,7 @@ class ProgressionService(
             ledgerId = ledgerId,
             amount = xpToAward,
             sourceType = sourceType,
-            sourceId = sourceId,
+            sourceId = actualSourceId,
             totalXpAfter = newTotal,
         )
         if (newLevel > oldLevel) events += DomainEvent.LevelUp(oldLevel, newLevel)
@@ -158,6 +160,7 @@ class ProgressionService(
         originalSourceId: String,
         reverseSourceType: String,
         reverseSourceId: String,
+        attrs: Map<AttributeCode, Int> = emptyMap(),
     ): Boolean {
         val events = mutableListOf<DomainEvent>()
         val ok = db.withTransaction {
@@ -167,6 +170,7 @@ class ProgressionService(
                 reverseSourceType,
                 reverseSourceId,
                 events,
+                attrs,
             )
         }
         if (ok) events.forEach { eventBus.publish(it) }
@@ -195,20 +199,32 @@ class ProgressionService(
 
         val moduleMeta = ModuleScope.parseModuleFromMetadata(original.metadataJson)?.name
             ?: ModuleScope.moduleForSourceType(originalSourceType).name
+        val reverseAttrs = if (attrs.isNotEmpty()) {
+            attrs.mapValues { -it.value }
+        } else {
+            AttributeRewardsParser.parse(original.metadataJson).associate { it.code to -it.amount }
+        }
+        val reverseMeta = mergeAttrsIntoMetadata(
+            """{"originalLedgerId":${original.id},"module":"$moduleMeta"}""",
+            reverseAttrs,
+        )
         val ledgerId = xpDao.insertLedger(
             XpLedgerEntryEntity(
                 amount = -original.amount,
                 sourceType = reverseSourceType,
                 sourceId = reverseSourceId,
-                metadataJson = """{"originalLedgerId":${original.id},"module":"$moduleMeta"}""",
+                metadataJson = reverseMeta,
                 createdAtEpochMs = now,
             ),
         )
         playerDao.upsertProfile(profile.copy(totalXp = newTotal, level = newLevel, rank = newRank))
 
-        if (attrs.isNotEmpty()) {
+        val attrsToApply = attrs.ifEmpty {
+            AttributeRewardsParser.parse(original.metadataJson).associate { it.code to it.amount }
+        }
+        if (attrsToApply.isNotEmpty()) {
             val existingAttrs = playerDao.getAttributes().associateBy { it.code }
-            for ((code, delta) in attrs) {
+            for ((code, delta) in attrsToApply) {
                 val existing = existingAttrs[code.name] ?: continue
                 playerDao.upsertAttribute(
                     existing.copy(currentValue = (existing.currentValue - delta).coerceAtLeast(0)),
@@ -244,6 +260,7 @@ class ProgressionService(
             val newRank = SystemDefaults.rankForLevel(newLevel)
 
             playerDao.upsertProfile(profile.copy(totalXp = newTotal, level = newLevel, rank = newRank))
+            rebuildAttributesFromLedger(modules)
 
             if (newLevel > oldLevel) events += DomainEvent.LevelUp(oldLevel, newLevel)
             if (newRank != oldRank) events += DomainEvent.RankUp(oldRank, newRank)
@@ -252,6 +269,38 @@ class ProgressionService(
         }
         events.forEach { eventBus.publish(it) }
         return result
+    }
+
+    private suspend fun rebuildAttributesFromLedger(modules: EnabledModules) {
+        val totals = mutableMapOf<AttributeCode, Int>()
+        for (entry in db.xpDao().getAllLedger()) {
+            if (!allowsEntry(entry, modules)) continue
+            for (delta in AttributeRewardsParser.parse(entry.metadataJson)) {
+                totals[delta.code] = (totals[delta.code] ?: 0) + delta.amount
+            }
+        }
+        val playerDao = db.playerDao()
+        for (code in AttributeCode.entries) {
+            val value = (totals[code] ?: 0).coerceAtLeast(0)
+            playerDao.upsertAttribute(
+                AttributeStatEntity(code = code.name, currentValue = value, lifetimeXp = value),
+            )
+        }
+    }
+
+    /** Merge attribute deltas into ledger metadata for symmetric rebuild. */
+    private fun mergeAttrsIntoMetadata(
+        metadataJson: String,
+        attrs: Map<AttributeCode, Int>,
+    ): String {
+        if (attrs.isEmpty()) return metadataJson
+        val base = metadataJson.trim().removePrefix("{").removeSuffix("}").trim()
+        val attrPart = attrs.entries.joinToString(",") { "\"${it.key.name}\":${it.value}" }
+        return if (base.isEmpty()) {
+            "{$attrPart}"
+        } else {
+            "{$base,$attrPart}"
+        }
     }
 
     suspend fun sumXpForModule(module: ModuleId, modules: EnabledModules): Int {
@@ -316,6 +365,54 @@ class ProgressionService(
         val tags = template?.priorityTags ?: return ModuleId.GLOBAL
         return ModuleScope.moduleForPriorityTags(tags)
     }
+
+    suspend fun findUnrevertedAward(sourceType: String, baseSourceId: String): XpLedgerEntryEntity? {
+        val ledger = db.xpDao().getAllLedger()
+        val reversedIds = reversedOriginalIds(ledger)
+        return ledger
+            .filter {
+                it.sourceType == sourceType &&
+                    it.amount > 0 &&
+                    (it.sourceId == baseSourceId || it.sourceId.startsWith("${baseSourceId}_"))
+            }
+            .filter { it.id !in reversedIds }
+            .maxByOrNull { it.createdAtEpochMs }
+    }
+
+    private fun resolveAwardSourceId(
+        sourceType: String,
+        sourceId: String,
+        ledger: List<XpLedgerEntryEntity>,
+    ): String? {
+        val reversedIds = reversedOriginalIds(ledger)
+        val family = ledger.filter {
+            it.sourceType == sourceType &&
+                it.amount > 0 &&
+                (it.sourceId == sourceId || it.sourceId.startsWith("${sourceId}_"))
+        }
+        if (family.any { it.id !in reversedIds }) return null
+        if (ledger.none { it.sourceType == sourceType && it.sourceId == sourceId }) return sourceId
+        var n = 1
+        var candidate = "${sourceId}_$n"
+        while (ledger.any { it.sourceType == sourceType && it.sourceId == candidate }) {
+            n++
+            candidate = "${sourceId}_$n"
+        }
+        return candidate
+    }
+
+    private fun reversedOriginalIds(ledger: List<XpLedgerEntryEntity>): Set<Long> =
+        ledger
+            .filter { it.amount < 0 }
+            .mapNotNull { parseOriginalLedgerId(it.metadataJson) }
+            .toSet()
+
+    private fun parseOriginalLedgerId(metadataJson: String): Long? =
+        Regex(""""originalLedgerId"\s*:\s*(\d+)""")
+            .find(metadataJson)
+            ?.groupValues
+            ?.get(1)
+            ?.toLongOrNull()
 
     private fun startOfDayMs(timezone: String): Long {
         val zone = runCatching { ZoneId.of(timezone) }.getOrDefault(ZoneId.systemDefault())

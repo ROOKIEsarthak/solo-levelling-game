@@ -2,7 +2,9 @@ package com.example.solo_levelling.ui.fitness
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -40,9 +42,16 @@ class FitnessWorkoutDateSelectionTest {
     }
 
     @Test
-    fun n_unlockedSplit_defaultsToRoutineTab() {
-        assertEquals("Routine", defaultTrainingTab(""))
-        assertEquals("Routine", resolvedTrainingTab(null, ""))
+    fun p_unlockedSplit_defaultsToTodayTab() {
+        assertEquals("Today", defaultTrainingTab(""))
+        assertEquals("Today", resolvedTrainingTab(null, ""))
+    }
+
+    @Test
+    fun r_customRoutine_doesNotOpenRoutineOnEntry() {
+        assertEquals("Today", defaultTrainingTab(""))
+        assertEquals("Today", resolvedTrainingTab(null, ""))
+        assertEquals("Today", defaultTrainingTab(null))
     }
 
     @Test
@@ -61,5 +70,48 @@ class FitnessWorkoutDateSelectionTest {
     fun p_applySplit_forcesTodayTab() {
         assertEquals("Today", resolvedTrainingTab("Today", "ppl_ul"))
         assertEquals("Today", resolvedTrainingTab("Today", ""))
+    }
+
+    @Test
+    fun p_canGoNext_fromPastTowardToday() {
+        val today = java.time.LocalDate.of(2026, 8, 18)
+        assertTrue(
+            com.example.solo_levelling.domain.logic.ActivityDatePolicy.canGoToNextDay(
+                today,
+                today.minusDays(1),
+            ),
+        )
+    }
+
+    @Test
+    fun n_canGoNext_disabledOnToday() {
+        val today = java.time.LocalDate.of(2026, 8, 18)
+        assertFalse(
+            com.example.solo_levelling.domain.logic.ActivityDatePolicy.canGoToNextDay(today, today),
+        )
+    }
+
+    @Test
+    fun n_futureDate_notWritable() {
+        val today = java.time.LocalDate.of(2026, 8, 18)
+        assertFalse(
+            com.example.solo_levelling.domain.logic.ActivityDatePolicy.canWriteRecord(
+                today,
+                today.plusDays(1),
+            ),
+        )
+    }
+
+    @Test
+    fun p_pastDate_selectableForReviewButNotWritable() {
+        val today = java.time.LocalDate.of(2026, 8, 18)
+        val past = today.minusDays(1)
+        assertTrue(
+            com.example.solo_levelling.domain.logic.ActivityDatePolicy.relation(today, past) !=
+                com.example.solo_levelling.domain.logic.DayRelation.Future,
+        )
+        assertFalse(
+            com.example.solo_levelling.domain.logic.ActivityDatePolicy.canWriteRecord(today, past),
+        )
     }
 }

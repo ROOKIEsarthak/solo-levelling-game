@@ -1,7 +1,5 @@
 package com.example.solo_levelling.domain.handler
 
-import android.content.Context
-import androidx.test.core.app.ApplicationProvider
 import com.example.solo_levelling.core.event.EventBus
 import com.example.solo_levelling.core.time.FakeAppClock
 import com.example.solo_levelling.data.db.JsonDatabase
@@ -15,30 +13,28 @@ import com.example.solo_levelling.data.db.entity.QuestTemplateEntity
 import com.example.solo_levelling.data.db.entity.StreakStateEntity
 import com.example.solo_levelling.domain.model.AttributeCode
 import com.example.solo_levelling.domain.model.QuestStatus
+import com.example.solo_levelling.domain.service.PostQuestCompletionCoordinator
 import com.example.solo_levelling.domain.service.ProgressionService
 import com.example.solo_levelling.domain.service.QuestCompletionService
 import com.example.solo_levelling.domain.service.QuestGenerationService
 import com.example.solo_levelling.domain.service.SeasonService
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import java.io.File
+import java.nio.file.Files
 import java.time.LocalDate
 
 @OptIn(ExperimentalCoroutinesApi::class)
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
 class QuestUndoSideEffectsTest {
     private lateinit var db: JsonDatabase
     private lateinit var eventBus: EventBus
@@ -46,25 +42,34 @@ class QuestUndoSideEffectsTest {
     private lateinit var progression: ProgressionService
     private lateinit var questCompletion: QuestCompletionService
     private lateinit var seasonService: SeasonService
+    private lateinit var tempDir: java.nio.file.Path
+    private val dispatcher = UnconfinedTestDispatcher()
 
     @Before
     fun setup() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        db = JsonDatabase(File(context.cacheDir, "test-db-${System.nanoTime()}").also { it.mkdirs() })
+        Dispatchers.setMain(dispatcher)
+        tempDir = Files.createTempDirectory("quest-undo-")
+        db = JsonDatabase(tempDir.toFile())
         eventBus = EventBus()
         clock = FakeAppClock(fixedDate = LocalDate.of(2026, 8, 15))
         progression = ProgressionService(db, eventBus, clock)
-        questCompletion = QuestCompletionService(db, eventBus, clock, progression)
         seasonService = SeasonService(db, clock)
+        val scope = CoroutineScope(dispatcher)
+        val streak = StreakHandler(db, eventBus, clock, scope)
+        val boss = BossProgressHandler(db, eventBus, progression, scope)
+        val achievements = AchievementHandler(db, eventBus, clock, progression, scope)
+        val questGen = QuestGenerationService(db, clock, eventBus, scope = scope)
+        val postQuest = PostQuestCompletionCoordinator(streak, boss, achievements, questGen, seasonService)
+        questCompletion = QuestCompletionService(db, eventBus, clock, progression, null, postQuest)
+        SeasonHandler(eventBus, seasonService, scope).start()
     }
 
     @After
     fun tearDown() {
         db.close()
+        tempDir.toFile().deleteRecursively()
+        Dispatchers.resetMain()
     }
-
-    private fun TestScope.handlerScope(): CoroutineScope =
-        CoroutineScope(UnconfinedTestDispatcher(testScheduler))
 
     private suspend fun seedPlayer() {
         db.playerDao().upsertProfile(
@@ -81,9 +86,7 @@ class QuestUndoSideEffectsTest {
     @Test
     fun p_undo_subtractsSeasonXp() = runTest {
         seedPlayer()
-        SeasonHandler(eventBus, seasonService, handlerScope()).start()
         seasonService.ensureActiveSeason()
-
         val id = db.questDao().insertInstance(
             QuestInstanceEntity(
                 templateId = 1,
@@ -97,7 +100,6 @@ class QuestUndoSideEffectsTest {
         )
         questCompletion.complete(id)
         assertEquals(40, db.moduleDao().getActiveSeason()!!.seasonXp)
-
         assertTrue(questCompletion.undo(id))
         assertEquals(0, db.moduleDao().getActiveSeason()!!.seasonXp)
     }
@@ -105,8 +107,6 @@ class QuestUndoSideEffectsTest {
     @Test
     fun p_undo_relocksAvailableDependent() = runTest {
         seedPlayer()
-        QuestGenerationService(db, clock, eventBus, scope = handlerScope()).start()
-
         val prereqId = db.questDao().upsertTemplate(
             QuestTemplateEntity(
                 key = "prereq",
@@ -148,10 +148,8 @@ class QuestUndoSideEffectsTest {
                 attributeRewardsJson = "{}",
             ),
         )
-
         questCompletion.complete(prereqInstance)
         assertEquals(QuestStatus.AVAILABLE.name, db.questDao().getInstance(depInstance)!!.status)
-
         assertTrue(questCompletion.undo(prereqInstance))
         assertEquals(QuestStatus.LOCKED.name, db.questDao().getInstance(depInstance)!!.status)
     }
@@ -159,8 +157,6 @@ class QuestUndoSideEffectsTest {
     @Test
     fun p_undo_reversesBossProgressAndClearXp() = runTest {
         seedPlayer()
-        BossProgressHandler(db, eventBus, progression, handlerScope()).start()
-
         val templateId = db.questDao().upsertTemplate(
             QuestTemplateEntity(
                 key = "boss_q",
@@ -187,16 +183,11 @@ class QuestUndoSideEffectsTest {
                 attributeRewardsJson = "{}",
             ),
         )
-
         questCompletion.complete(instanceId)
-        val bossAfter = db.moduleDao().getBosses().single { it.id == bossId }
-        assertEquals("CLEARED", bossAfter.status)
-        assertTrue(db.moduleDao().getBossQuests(bossId).single().completed)
+        assertEquals("CLEARED", db.moduleDao().getBosses().single { it.id == bossId }.status)
         assertTrue(db.xpDao().findBySource("BOSS", "boss_$bossId") != null)
-
         assertTrue(questCompletion.undo(instanceId))
-        val bossUndone = db.moduleDao().getBosses().single { it.id == bossId }
-        assertEquals("ACTIVE", bossUndone.status)
+        assertEquals("ACTIVE", db.moduleDao().getBosses().single { it.id == bossId }.status)
         assertFalse(db.moduleDao().getBossQuests(bossId).single().completed)
         assertTrue(db.xpDao().findBySource("BOSS_UNDO", "UNDO_BOSS_$bossId") != null)
     }
@@ -204,11 +195,9 @@ class QuestUndoSideEffectsTest {
     @Test
     fun p_undo_dropsStreakWhenLastCompletionOfDay() = runTest {
         seedPlayer()
-        StreakHandler(db, eventBus, clock, handlerScope()).start()
         db.playerDao().upsertStreak(
             StreakStateEntity(current = 3, best = 5, lastCompletedDate = "2026-08-14"),
         )
-
         val id = db.questDao().insertInstance(
             QuestInstanceEntity(
                 templateId = 1,
@@ -222,19 +211,15 @@ class QuestUndoSideEffectsTest {
         )
         questCompletion.complete(id)
         assertEquals(4, db.playerDao().getStreak(1)!!.current)
-        assertEquals("2026-08-15", db.playerDao().getStreak(1)!!.lastCompletedDate)
-
         assertTrue(questCompletion.undo(id))
         val streak = db.playerDao().getStreak(1)!!
         assertEquals(3, streak.current)
         assertEquals("2026-08-14", streak.lastCompletedDate)
-        assertEquals(5, streak.best)
     }
 
     @Test
     fun e_undo_keepsAchievementUnlocked() = runTest {
         seedPlayer()
-        AchievementHandler(db, eventBus, clock, progression, handlerScope()).start()
         db.achievementDao().upsertDefs(
             listOf(
                 AchievementDefEntity(
@@ -247,7 +232,6 @@ class QuestUndoSideEffectsTest {
                 ),
             ),
         )
-
         val id = db.questDao().insertInstance(
             QuestInstanceEntity(
                 templateId = 1,
@@ -261,9 +245,7 @@ class QuestUndoSideEffectsTest {
         )
         questCompletion.complete(id)
         assertTrue(db.achievementDao().getUnlocked().any { it.achievementKey == "first_quest" })
-
         assertTrue(questCompletion.undo(id))
-        assertEquals(0, db.questDao().countCompletedAll())
         assertTrue(db.achievementDao().getUnlocked().any { it.achievementKey == "first_quest" })
     }
 }

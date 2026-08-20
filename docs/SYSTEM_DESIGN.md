@@ -1,7 +1,9 @@
 # Solo Levelling — System Design
 
-> Describes the **current** technical architecture as implemented in this repository.  
-> Product behavior: [APP_DOCUMENTATION.md](./APP_DOCUMENTATION.md) · Data/JSON: [JSON_DATA_REFERENCE.md](./JSON_DATA_REFERENCE.md)
+> **Canonical onboarding reference:** [architecture-and-system-design.md](./architecture-and-system-design.md)  
+> This file remains a shorter system-design summary. Prefer the canonical doc for full module/data/navigation maps.
+>
+> Product behavior: [APP_DOCUMENTATION.md](./APP_DOCUMENTATION.md) · Data/JSON: [JSON_DATA_REFERENCE.md](./JSON_DATA_REFERENCE.md) · Deep change map: [ARCHITECTURE_ANALYSIS.md](./ARCHITECTURE_ANALYSIS.md)
 
 **Legend:** Unlabeled claims are verified from code. **(inference)** / **Not determined from the repository** used where needed.
 
@@ -24,9 +26,11 @@ Observed goals embodied by the code (not a separate ADR set):
 | Offline-first | No INTERNET permission; all features work locally. |
 | Auditable progression | Append-only `xp_ledger.json` as XP source of truth. |
 | Anti-farming | Daily XP cap, idempotent awards, undo window. |
-| Decoupled side effects | `EventBus` + handlers for streak, achievements, boss, notify, season, outbox. |
-| Future sync readiness | `SyncOutboxHandler` + `SyncTransportPort` (no-op). |
+| Decoupled side effects | Critical post-quest via `PostQuestCompletionCoordinator`; EventBus for notifications/UI. |
+| No fake sync | Sync outbox removed until a real transport exists. |
 | Testable domain | Pure logic modules + services with injectable clock/DB. |
+| Calendar midnight | `DayBoundaryCoordinator` schedules next local midnight (not 24h periodic). |
+| Module pause | Storage archival; `ActiveProgressionReader` filters active views/export. |
 
 ---
 
